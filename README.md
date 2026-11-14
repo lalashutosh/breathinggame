@@ -1,4 +1,63 @@
-# Breath Dive
+# MindPlay · Breath Dive
+
+Two things live here:
+
+* **`web/`** – the MindPlay landing page: a shared pixel-art community garden on the left,
+  three game cards on the right. Finishing a game earns one sapling to plant in the garden.
+  The first card is a browser edition of Breath Dive (hold to breathe in, let go to breathe out).
+* **`breathdive.py`** – the full desktop Breath Dive, driven by a real microphone and a
+  Bluetooth heart-rate sensor.
+
+## Landing page
+
+```bash
+python3 serve.py --open          # http://127.0.0.1:8000, garden saved to garden.json
+```
+
+The garden fills the first screen; the title, the community counter, the game cards and
+the planting controls float over it. `serve.py` serves `web/` and a two-endpoint API
+(`GET /api/garden`, `POST /api/garden/contributions`) so every visitor sees the same
+garden; the page polls for other people's trees. Opened as plain static files it falls
+back to `localStorage`. Add `?time=day|dusk|night` to preview a time of day,
+`?play=breath-dive` to deep-link into the game, `?debug=1` to surface errors and get a
+`window.mindplay` dev hook.
+
+### Sensors in the browser game
+
+Breath Dive's setup screen offers three breath sources and an optional heart sensor:
+
+| source | how |
+|---|---|
+| Microphone | `web/js/lib/sensors.js` ports `BreathFilter` (band power 400-3000 Hz, spectral-flatness hiss gate, medians, envelope) and `BreathTracker` (alternate / exhale schemes, `P` flips in/out). Stay quiet for 3 s after starting so it can measure the room. |
+| Hold a key or button | `SPACE`, the big button, or a finger on the canvas; same lung model as `--breath keys`. |
+| Follow the pacer | 4 s in / 6 s out, like `--breath guide`. |
+| Bluetooth heart rate | Web Bluetooth, standard Heart Rate Service, same `parse_hrm` logic. Shows bpm, HRV (RMSSD over 30 beats) and the change against the first 20 s; a heart that calms 2 bpm below that baseline multiplies the breath's reward by 1.25, as in the desktop game. |
+
+Microphone and Bluetooth need a secure page (https or localhost). Web Bluetooth works in
+Chrome and Edge on desktop and Android; Safari and Firefox fall back to the other inputs.
+Apple Watch does not broadcast over Bluetooth; use a strap or a re-broadcasting app.
+
+How it fits together (vanilla ES modules, no build step):
+
+| file | role |
+|---|---|
+| `web/js/config/games.js` | game registry: title, availability, reward, lazy `load()` |
+| `web/js/games/panel.js`, `thumbs.js` | the three cards and their pixel thumbnails |
+| `web/js/games/breathdive/index.js` | Game 1; a module exporting `mount(container, { onComplete, onExit })` |
+| `web/js/lib/sensors.js` | microphone breath filter/tracker and Bluetooth heart-rate client |
+| `web/js/garden/garden.js` | canvas scene: mountains, treeline, river, fenced plot with slots, growth stages, planting/growing animations, wildlife milestones |
+| `web/js/garden/sprites.js` | tree kinds (apple, cherry, birch, pine) × 3 stages, wild trees, decor |
+| `web/js/garden/store.js` | contributions + rewards; `LocalGardenStore` / `RemoteGardenStore` share one interface |
+| `web/js/main.js` | reward flow: game → sapling → pick a spot → tree |
+
+A **contribution** is `{ id, type, kind, slot: {col,row}, plantedAt, visitorId, gameId }`.
+Trees start as sprouts and advance a stage after 2 / 6 later plantings or 12 / 48 hours
+(`GROWTH` in `garden.js`). Butterflies, flowers, birds, pond life and a bench appear as the
+count grows (`MILESTONES`). To add a game, append an entry to `games.js` and have its
+module call `onComplete()` once; the reward type can later be a flower or bush, since the
+store and garden treat contributions generically.
+
+# Breath Dive (desktop)
 
 A pixel-art scuba dive that follows your breath and heart rate.
 

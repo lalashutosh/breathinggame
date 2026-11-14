@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MindPlay · Community Garden</title>
+  <meta name="description" content="Build our garden together through breathing. Play a calming game, plant a tree in a shared pixel-art garden.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='6' y='9' width='4' height='6' fill='%238b5a2b'/><rect x='2' y='2' width='12' height='8' fill='%2386bd5f'/><rect x='4' y='1' width='8' height='1' fill='%2386bd5f'/><rect x='3' y='3' width='4' height='2' fill='%23bfe08d'/></svg>">
+</head>
+<body>
+  <!-- ============ The garden fills the first screen; the UI floats over it ============ -->
+  <section class="scene" id="scene" data-tod="day">
+    <canvas id="garden-canvas" class="garden-canvas" width="480" height="270" role="img" aria-label="Pixel-art community garden"></canvas>
+
+    <header class="ov ov-hero">
+      <h1 class="hero-title">Play. Grow. Breathe. <span class="heart" aria-hidden="true"></span></h1>
+      <p class="hero-sub">Build our garden together through breathing</p>
+    </header>
+
+    <div class="ov ov-stat" id="garden-stat" aria-live="polite">
+      <div class="stat-title"><span class="ico ico-tree" aria-hidden="true"></span>Our Community Garden</div>
+      <div class="stat-row">
+        <span class="stat-num" id="stat-total">0</span>
+        <span class="stat-label">trees planted together</span>
+      </div>
+      <div class="stat-me" id="me" title="Trees you have planted"><span class="me-dot" aria-hidden="true"></span><span id="me-count">0 trees</span> are yours</div>
+    </div>
+
+    <aside class="ov ov-games panel games-panel" id="games" aria-labelledby="games-title">
+      <header class="panel-head">
+        <h2 id="games-title" class="panel-title"><span class="ico ico-pad" aria-hidden="true"></span>Choose a game</h2>
+      </header>
+      <ul class="game-list" id="game-list"></ul>
+      <p class="games-note">Finish a game to earn <strong>one sapling</strong>. More games are on their way.</p>
+    </aside>
+
+    <footer class="ov ov-foot" id="garden">
+      <div class="garden-hint" id="garden-hint" hidden></div>
+      <p class="garden-status" id="garden-status" aria-live="polite">Finish a game to earn a tree.</p>
+      <div class="garden-actions" id="garden-actions"></div>
+    </footer>
+
+    <nav class="ov ov-links" aria-label="More">
+      <a href="#how">How it works</a>
+      <a href="#about">About</a>
+    </nav>
+  </section>
+
+  <main class="page">
+    <section class="how" id="how" aria-labelledby="how-title">
+      <h2 id="how-title" class="section-title">Every tree has a story</h2>
+      <p class="section-sub">You plant a sprout. The garden does the rest: trees grow a stage each time a few more neighbours play.</p>
+      <div class="stages" id="stages"></div>
+      <ol class="steps">
+        <li><b>Play</b> a game at your own pace. Breathe with the microphone, or hold a key.</li>
+        <li><b>Earn</b> one sapling for every game you finish.</li>
+        <li><b>Plant</b> it anywhere in the garden and watch it grow with everyone else's.</li>
+      </ol>
+    </section>
+
+    <footer class="about" id="about">
+      <p><b>About.</b> MindPlay is a small collection of calm, body-aware games. Nothing here is a competition; the only leaderboard is the forest.</p>
+      <p class="muted">Breath Dive can listen to your breathing through the microphone and read a Bluetooth heart-rate sensor (Polar, Wahoo, Garmin broadcast, Coospo and others). Both need a secure page (https or localhost); Bluetooth works in Chrome and Edge.</p>
+      <p class="muted" id="storage-note"></p>
+    </footer>
+  </main>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <pre id="debug" hidden></pre>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
