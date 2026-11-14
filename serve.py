@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-serve.py - serve the MindPlay landing page and a tiny shared-garden API.
+serve.py - serve the ΑΝΑΣΑ (anasa) garden page and a tiny shared-garden API.
 
     python3 serve.py                 # http://localhost:8000
     python3 serve.py --port 8080 --data garden.json --open
@@ -201,7 +201,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="MindPlay landing page + shared garden API")
+    ap = argparse.ArgumentParser(description="ΑΝΑΣΑ garden page + shared garden API")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--data", default=os.path.join(ROOT, "garden.json"), help="where to keep the garden (JSON)")
@@ -213,7 +213,7 @@ def main():
     Handler.greenfold = GreenfoldLauncher(url)
     handler = partial(Handler, directory=WEB)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"MindPlay garden at {url}  (data: {args.data})")
+    print(f"ΑΝΑΣΑ garden at {url}  (data: {args.data})")
     if args.open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

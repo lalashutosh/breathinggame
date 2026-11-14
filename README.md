@@ -1,14 +1,15 @@
-# MindPlay
+# ΑΝΑΣΑ (anasa)
 
-Three calm games around one shared garden. Finishing any game earns a sapling to plant.
+*Greek for “breath”.* One calm game in three modes, **minimalist**, **retro** and **immersive**,
+around one shared garden. Finishing any mode earns a sapling to plant.
 
-* **`web/`** – the MindPlay landing page: a shared pixel-art community garden with three game cards.
-  Each game takes about a minute (demo length) and ends with an arrival.
-  * **Greenfold** – the immersive valley walk (`greenfold/`, Godot 4). From the landing page it
+* **`web/`** – the landing page: a shared pixel-art community garden with one card per mode.
+  Each mode takes about a minute (demo length) and ends with an arrival.
+  * **Immersive** (Greenfold) – the valley walk (`greenfold/`, Godot 4). From the landing page it
     opens fullscreen in its own window when the page is served by `serve.py` on a machine with
     Godot; anywhere else the card runs the browser edition (`web/games/greenfold-web/`).
-  * **Breath Dive** – pixel diver, five moods, mic / keys / pacer, optional heart strap.
-  * **Drift** – the minimalist one: one small light over a quiet lake, five moods.
+  * **Retro** (Breath Dive) – pixel diver, five moods, mic / keys / pacer, optional heart strap.
+  * **Minimalist** (Drift) – one small light over a quiet lake, five moods.
 * **`breathdive.py`** – the full desktop Breath Dive, driven by a real microphone and a
   Bluetooth heart-rate sensor.
 * **`greenfold/`** – the Godot project (`godot --path greenfold --fullscreen` to run it alone).

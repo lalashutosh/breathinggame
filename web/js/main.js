@@ -131,7 +131,7 @@ async function plantAt(slot) {
 let gameInstance = null;
 async function playGame(game) {
   const modal = openModal({
-    title: game.title, subtitle: 'Finish to earn a sapling',
+    title: `ΑΝΑΣΑ · ${game.title}`, subtitle: 'Finish to earn a sapling',
     onClose: () => { if (gameInstance) { gameInstance.unmount(); gameInstance = null; } },
   });
   modal.body.innerHTML = '<p style="padding:24px;font-weight:700">Loading…</p>';

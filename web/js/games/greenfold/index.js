@@ -1,15 +1,15 @@
-// Greenfold (the immersive valley) inside the MindPlay hub.
+// ΑΝΑΣΑ immersive mode (the Greenfold valley) inside the garden hub.
 // The full game is a Godot build. When this page is served by serve.py on the demo laptop, the
 // server opens it fullscreen in its own window and the game reports back when the walk ends.
 // Anywhere else (or if Godot is missing) the browser edition runs right here instead.
 
-export const meta = { id: 'greenfold', title: 'Greenfold' };
+export const meta = { id: 'greenfold', title: 'ΑΝΑΣΑ · Immersive' };
 
 const CSS = `
 .gf { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; text-align: center; color: #f6f1e7;
   background: radial-gradient(ellipse at 50% 35%, #f6b47a 0%, #c9577a 38%, #2b3a67 75%, #141a3e 100%); font-family: system-ui, sans-serif; }
 .gf-card { max-width: 520px; padding: 28px; }
-.gf h3 { font-family: "Cormorant Garamond", "EB Garamond", Georgia, serif; font-weight: 400; font-size: 64px; margin: 0; letter-spacing: .02em; }
+.gf h3 { font-family: "Noto Serif Display", "Noto Serif", Georgia, serif; letter-spacing: .14em; font-weight: 400; font-size: 64px; margin: 0; letter-spacing: .02em; }
 .gf .sub { font-family: "Cormorant Garamond", Georgia, serif; font-style: italic; font-size: 21px; opacity: .9; margin: 6px 0 22px; }
 .gf p { line-height: 1.5; opacity: .88; margin: 0 0 14px; }
 .gf .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
@@ -38,8 +38,8 @@ export function mount(container, { onComplete, onExit } = {}) {
 
   function intro(native) {
     view(`
-      <h3>Greenfold</h3>
-      <p class="sub">a quiet valley, a few stray sheep</p>
+      <h3 lang="el">ΑΝΑΣΑ</h3>
+      <p class="sub">immersive · a quiet valley, a few stray sheep</p>
       <p>Walk the valley as it slowly breathes. About a minute: tap a mood, hold to walk, find the sheep.</p>
       ${native ? '<p style="font-size:13.5px;opacity:.7">Opens fullscreen in its own window. When the walk ends, choose “Back to the garden”.</p>' : ''}
       <div class="row">
@@ -59,12 +59,12 @@ export function mount(container, { onComplete, onExit } = {}) {
       if (!r.ok) throw new Error((await r.json()).error || r.statusText);
       session = (await r.json()).session;
     } catch (e) {
-      view(`<h3>Greenfold</h3><p class="sub">the valley window could not open</p><p>${String(e.message || e)}</p>
+      view(`<h3 lang="el">ΑΝΑΣΑ</h3><p class="sub">the valley window could not open</p><p>${String(e.message || e)}</p>
         <div class="row"><button class="primary" data-web>Play in the browser</button><button data-leave>Back</button></div>`);
       on('[data-web]', browser); on('[data-leave]', () => onExit && onExit());
       return;
     }
-    view(`<h3>Greenfold</h3><p class="sub"><span class="wait"></span>the valley is open in its own window</p>
+    view(`<h3 lang="el">ΑΝΑΣΑ</h3><p class="sub"><span class="wait"></span>the valley is open in its own window</p>
       <p>Walk until the valley settles. This page notices when you are done.</p>
       <div class="row"><button data-cancel>Back</button></div>`);
     on('[data-cancel]', () => { clearInterval(poll); intro(true); });
@@ -77,7 +77,7 @@ export function mount(container, { onComplete, onExit } = {}) {
         quietTicks = d.running ? 0 : quietTicks + 1;
         if (quietTicks > 2) {
           clearInterval(poll);
-          view(`<h3>Greenfold</h3><p class="sub">the valley window closed before the walk ended</p>
+          view(`<h3 lang="el">ΑΝΑΣΑ</h3><p class="sub">the valley window closed before the walk ended</p>
             <div class="row"><button class="primary" data-go>Open it again</button><button data-leave>Back</button></div>`);
           on('[data-go]', launch); on('[data-leave]', () => onExit && onExit());
         }

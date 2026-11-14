@@ -1,5 +1,5 @@
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
-export const meta = { id: 'drift', title: 'Drift' };
+export const meta = { id: 'drift', title: 'ΑΝΑΣΑ · Minimalist' };
 
 let hasPlayedDrift = false;
 
@@ -75,7 +75,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 
 	const rootEl = element('div', 'dr');
 	rootEl.tabIndex = -1;
-	rootEl.setAttribute('aria-label', 'Drift');
+	rootEl.setAttribute('aria-label', 'Anasa, minimalist mode');
 
 	const style = doc.createElement('style');
 	style.textContent = `
@@ -379,7 +379,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 
 	const setup = element('section', 'dr-setup');
 	const setupInner = element('div', 'dr-setup-inner');
-	const title = element('h1', 'dr-title', 'Drift');
+	const title = element('h1', 'dr-title', 'ΑΝΑΣΑ');
 	const subtitle = element('p', 'dr-subtitle', 'one small light, a quiet evening');
 	const moodLabel = element('p', 'dr-label', 'how are you arriving?');
 	const moodRow = element('div', 'dr-moods');

@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MindPlay · Community Garden</title>
+  <title>ΑΝΑΣΑ · anasa · Community Garden</title>
   <meta name="description" content="Build our garden together through breathing. Play a calming game, plant a tree in a shared pixel-art garden.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Display:wght@400;500&family=Nunito:wght@400;600;700&family=Pixelify+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect x='6' y='9' width='4' height='6' fill='%238b5a2b'/><rect x='2' y='2' width='12' height='8' fill='%2386bd5f'/><rect x='4' y='1' width='8' height='1' fill='%2386bd5f'/><rect x='3' y='3' width='4' height='2' fill='%23bfe08d'/></svg>">
 </head>
@@ -17,8 +17,9 @@
     <canvas id="garden-canvas" class="garden-canvas" width="480" height="270" role="img" aria-label="Pixel-art community garden"></canvas>
 
     <header class="ov ov-hero">
-      <h1 class="hero-title">Play. Grow. Breathe. <span class="heart" aria-hidden="true"></span></h1>
-      <p class="hero-sub">Build our garden together through breathing</p>
+      <h1 class="hero-brand" lang="el" aria-label="Anasa">ΑΝΑΣΑ</h1>
+      <p class="hero-title">Play. Grow. Breathe. <span class="heart" aria-hidden="true"></span></p>
+      <p class="hero-sub">One calm game in three modes. Build our garden together through breathing.</p>
     </header>
 
     <div class="ov ov-stat" id="garden-stat" aria-live="polite">
@@ -32,10 +33,10 @@
 
     <aside class="ov ov-games panel games-panel" id="games" aria-labelledby="games-title">
       <header class="panel-head">
-        <h2 id="games-title" class="panel-title"><span class="ico ico-pad" aria-hidden="true"></span>Choose a game</h2>
+        <h2 id="games-title" class="panel-title"><span class="ico ico-pad" aria-hidden="true"></span>Choose a mode</h2>
       </header>
       <ul class="game-list" id="game-list"></ul>
-      <p class="games-note">Each game takes about a minute. Finish one to earn <strong>one sapling</strong>.</p>
+      <p class="games-note">Each mode takes about a minute. Finish one to earn <strong>one sapling</strong>.</p>
     </aside>
 
     <footer class="ov ov-foot" id="garden">
@@ -63,8 +64,8 @@
     </section>
 
     <footer class="about" id="about">
-      <p><b>About.</b> MindPlay is a small collection of calm, body-aware games. Nothing here is a competition; the only leaderboard is the forest.</p>
-      <p class="muted">Breath Dive can listen to your breathing through the microphone and read a Bluetooth heart-rate sensor (Polar, Wahoo, Garmin broadcast, Coospo and others). Both need a secure page (https or localhost); Bluetooth works in Chrome and Edge.</p>
+      <p><b>About.</b> ΑΝΑΣΑ (<i>anasa</i>, Greek for “breath”) is one calm, body-aware game in three modes: minimalist, retro and immersive. Nothing here is a competition; the only leaderboard is the forest.</p>
+      <p class="muted">Retro mode can listen to your breathing through the microphone and read a Bluetooth heart-rate sensor (Polar, Wahoo, Garmin broadcast, Coospo and others). Both need a secure page (https or localhost); Bluetooth works in Chrome and Edge.</p>
       <p class="muted" id="storage-note"></p>
     </footer>
   </main>

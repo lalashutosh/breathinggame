@@ -6,7 +6,7 @@ import { clamp, mixHex, pixelContext, makeSprite, flipH, fillEllipse, ringPixels
 import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
 
-export const meta = { id: 'breath-dive', title: 'Breath Dive' };
+export const meta = { id: 'breath-dive', title: 'ΑΝΑΣΑ · Retro' };
 
 let W = 320;
 const H = 180;
@@ -47,7 +47,7 @@ const floorY = (x) => 150 + Math.sin(x / 23) * 5 + Math.sin(x / 9 + 1) * 3 + Mat
 
 const SETUP_HTML = `
   <div>
-    <h3>Breath Dive</h3>
+    <h3><span class="bd-brand" lang="el">ΑΝΑΣΑ</span>Retro dive</h3>
     <p>Breathe in and the diver floats up. Breathe out and she sinks, trailing bubbles. The sea starts where you are and settles as you dive; long out-breaths and a calming heart count extra.</p>
     <div class="bd-setup">
       <fieldset>
@@ -86,7 +86,7 @@ const SETUP_HTML = `
 export function mount(container, { onComplete, onExit } = {}) {
   container.innerHTML = `
     <div class="bd is-full">
-      <div class="bd-stage" tabindex="0" aria-label="Breath Dive game">
+      <div class="bd-stage" tabindex="0" aria-label="Anasa, retro mode">
         <canvas></canvas>
         <div class="bd-hud">
           <div class="tl">Breath <span data-n>0</span> / ${GOAL_BREATHS}<small data-rate>&nbsp;</small></div>

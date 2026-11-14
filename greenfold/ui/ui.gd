@@ -277,7 +277,7 @@ func _build_menu() -> void:
 	column.add_theme_constant_override("separation", 0)
 	centre.add_child(column)
 
-	var title := _make_label("Greenfold", _title_font, 86.0, INK)
+	var title := _make_label("ΑΝΑΣΑ", _title_font, 86.0, INK)
 	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(title)
 
