@@ -42,6 +42,19 @@ it. Breaths move the dive on, and a slow time floor makes sure the water always 
 The end screen shows breaths/min start → end and one small real-world step. The game fills the
 window and asks for browser fullscreen on start (`F` toggles).
 
+### Drift (minimalist game)
+
+`web/js/games/drift/` · `?play=drift`. One small light over a quiet lake: hold (mouse, touch,
+`SPACE`) to lift it, let go to let it settle, and follow the glowing ribbon. The ribbon is the hidden
+world rhythm (40 % rise, 60 % fall, mirror → lead), so following it with your hand sets a slow
+rhythm without anyone being told to breathe. No holds, no numbers, nothing to lose: lights you meet
+on the ribbon drift up and become stars. Same five moods as Breath Dive, as single-horizon scenes:
+wind and rain clearing to a still golden evening, fog lifting, grey pre-dawn to sunrise with birds,
+moonlit night to dark rest. "Let the light find its own way" is an easy mode that steers for you.
+Fullscreen on start (`F` toggles); the end card shows rhythm per minute, time in flow, lights
+gathered and one small real-world step. The game module was drafted by a Verda-hosted agent from
+`web/js/games/drift/tasks/game.md`, then tuned.
+
 ### Sensors in the browser game
 
 Breath Dive's setup screen offers three breath sources and an optional heart sensor:

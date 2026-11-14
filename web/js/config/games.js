@@ -25,11 +25,12 @@ export const GAMES = [
     reward: { type: 'tree' },
   },
   {
-    id: 'focus-flow',
-    title: 'Focus Flow',
-    description: 'Stay present, go further.',
+    id: 'drift',
+    title: 'Drift',
+    description: 'Guide one small light across a quiet evening.',
     thumb: 'river',
-    available: false,
+    available: true,
     reward: { type: 'tree' },
+    load: () => import('../games/drift/index.js'),
   },
 ];
