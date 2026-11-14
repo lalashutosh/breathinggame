@@ -35,6 +35,8 @@ var _bell_timer := 4.0
 var _shot_path := ""
 var _shot_time := 6.0
 var _force_p := -1.0
+var _seq_dir := ""
+var _seq_n := 0
 var _dbg_nofog := false
 
 
@@ -88,6 +90,10 @@ func _ready() -> void:
 			if ui: ui.visible = false
 		elif a == "--nofog":
 			_dbg_nofog = true
+		elif a.begins_with("--seq="):
+			_seq_dir = a.substr(6)
+		elif a.begins_with("--turn="):
+			mouse_x = 0.5 + float(a.substr(7)) * 0.5
 		elif a == "--nolantern":
 			lantern_halo.visible = false
 			lantern_light.visible = false
@@ -527,6 +533,11 @@ func _process(dt: float) -> void:
 	if _force_p >= 0.0 and Game.state == "play":
 		Game.p = _force_p
 		Game.e = Game.ease_s(_force_p)
+	if _seq_dir != "" and t > 3.0:
+		get_viewport().get_texture().get_image().save_png("%s/f%03d.png" % [_seq_dir, _seq_n])
+		_seq_n += 1
+		if _seq_n >= 90:
+			get_tree().quit()
 	if _shot_path != "" and t > _shot_time:
 		get_viewport().get_texture().get_image().save_png(_shot_path)
 		print("SHOT ", _shot_path, " fps=", Engine.get_frames_per_second(), " size=", get_viewport().get_visible_rect().size, " pos=", pl_pos, " flock=", Game.flock)
