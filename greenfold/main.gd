@@ -37,6 +37,7 @@ var _shot_time := 6.0
 var _force_p := -1.0
 var _seq_dir := ""
 var _seq_n := 0
+var _seq_busy := false
 var _dbg_nofog := false
 
 
@@ -252,7 +253,7 @@ func _apply_mood(dt: float) -> void:
 		motes.amount_ratio = clampf(0.15 + life, 0.0, 1.0)
 		motes_mat.gravity = Vector3(0.15, 0.35 if Breath.rising else -0.22, 0.0)
 		var ff := clampf(stars * 1.6, 0.0, 1.0)
-		motes_mat.color = Color(1.0, 0.88, 0.55).lerp(Color(0.75, 1.0, 0.55), ff) * (1.4 + 1.2 * ff)
+		motes_mat.color = Color(1.0, 0.88, 0.55).lerp(Color(0.75, 1.0, 0.55), ff) * (0.9 + 0.5 * ff)
 		motes.global_position = pl_pos + Vector3(0, 2.5, 0)
 	if rain:
 		rain.amount_ratio = Game.fv("rain")
@@ -385,7 +386,7 @@ func _build_particles() -> void:
 	motes.visibility_aabb = AABB(Vector3(-60, -20, -60), Vector3(120, 40, 120))
 	motes_mat = ParticleProcessMaterial.new()
 	motes_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	motes_mat.emission_box_extents = Vector3(32, 4, 32)
+	motes_mat.emission_box_extents = Vector3(22, 3, 22)
 	motes_mat.initial_velocity_min = 0.05
 	motes_mat.initial_velocity_max = 0.3
 	motes_mat.direction = Vector3(0.3, 1, 0)
@@ -405,18 +406,10 @@ func _build_particles() -> void:
 	motes_mat.scale_curve = alpha_curve
 	motes.process_material = motes_mat
 	var q := QuadMesh.new()
-	q.size = Vector2(0.09, 0.09)
-	var qm := StandardMaterial3D.new()
-	qm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	qm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	qm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	qm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	qm.albedo_texture = _glow_texture()
-	qm.vertex_color_use_as_albedo = true
-	qm.disable_fog = true
-	qm.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
-	qm.distance_fade_min_distance = 2.0
-	qm.distance_fade_max_distance = 7.0
+	q.size = Vector2(0.14, 0.14)
+	var qm := ShaderMaterial.new()
+	qm.shader = load("res://shaders/motes.gdshader")
+	qm.set_shader_parameter("glow_tex", _glow_texture())
 	q.material = qm
 	motes.draw_pass_1 = q
 	add_child(motes)
@@ -533,11 +526,8 @@ func _process(dt: float) -> void:
 	if _force_p >= 0.0 and Game.state == "play":
 		Game.p = _force_p
 		Game.e = Game.ease_s(_force_p)
-	if _seq_dir != "" and t > 3.0:
-		get_viewport().get_texture().get_image().save_png("%s/f%03d.png" % [_seq_dir, _seq_n])
-		_seq_n += 1
-		if _seq_n >= 90:
-			get_tree().quit()
+	if _seq_dir != "" and t > 3.0 and not _seq_busy:
+		_capture_seq_frame()
 	if _shot_path != "" and t > _shot_time:
 		get_viewport().get_texture().get_image().save_png(_shot_path)
 		print("SHOT ", _shot_path, " fps=", Engine.get_frames_per_second(), " size=", get_viewport().get_visible_rect().size, " pos=", pl_pos, " flock=", Game.flock)
@@ -665,3 +655,13 @@ func _update_camera(dt: float, playing: bool) -> void:
 	var aspect := get_viewport().get_visible_rect().size
 	var base_fov := 78.0 if aspect.x < aspect.y else 60.0
 	cam.fov = base_fov + 0.8 * Breath.world_val  # tiny widen on the in-phase (motion comfort)
+
+
+func _capture_seq_frame() -> void:
+	_seq_busy = true
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png("%s/f%03d.png" % [_seq_dir, _seq_n])
+	_seq_n += 1
+	_seq_busy = false
+	if _seq_n >= 90:
+		get_tree().quit()
