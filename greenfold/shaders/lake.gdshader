@@ -118,7 +118,7 @@ void fragment() {
 	// Reduce diffuse body color at grazing angles so the low-roughness SSR and
 	// sky reflection naturally dominate through the engine's Fresnel response.
 	float ndotv = clamp(dot(wave_normal_view, view_direction), 0.0, 1.0);
-	float fresnel = 0.02 + 0.98 * pow(1.0 - ndotv, 5.0);
+	float fresnel = 0.02 + 0.98 * pow(clamp(1.0 - ndotv, 0.0, 1.0), 5.0);
 	body_color *= 1.0 - 0.55 * fresnel;
 	body_color = mix(body_color, foam_color, foam * 0.60);
 
@@ -128,8 +128,8 @@ void fragment() {
 		(VIEW_MATRIX * vec4(normalize(sun_dir), 0.0)).xyz
 	);
 	float sun_alignment = clamp(dot(reflected_view, sun_view_direction), 0.0, 1.0);
-	float sharp_glint = pow(sun_alignment, 200.0);
-	float broad_glint = pow(sun_alignment, 24.0);
+	float sharp_glint = pow(max(sun_alignment, 0.0), 200.0);
+	float broad_glint = pow(max(sun_alignment, 0.0), 24.0);
 	float glint_breathing = 0.85 + 0.30 * clamp(world_val, 0.0, 1.0);
 	float sun_above_horizon = smoothstep(-0.04, 0.08, sun_dir.y);
 	vec3 sun_glint = sun_col.rgb

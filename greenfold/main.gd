@@ -12,7 +12,7 @@ var sun: DirectionalLight3D
 var cam: Camera3D
 var hero: Node3D
 var lantern_light: OmniLight3D
-var lantern_halo: Sprite3D
+var lantern_halo: MeshInstance3D
 var motes: GPUParticles3D
 var motes_mat: ParticleProcessMaterial
 var rain: GPUParticles3D
@@ -88,6 +88,23 @@ func _ready() -> void:
 			if ui: ui.visible = false
 		elif a == "--nofog":
 			_dbg_nofog = true
+		elif a == "--nolantern":
+			lantern_halo.visible = false
+			lantern_light.visible = false
+		elif a == "--nohalo":
+			lantern_halo.visible = false
+		elif a == "--nosheep":
+			for sh in sheep: sh.node.visible = false
+		elif a == "--nomotes":
+			motes.visible = false
+		elif a == "--nograss":
+			get_node("Grass").visible = false
+		elif a == "--noflowers":
+			get_node("Flowers").visible = false
+		elif a == "--nossao":
+			env.ssao_enabled = false
+		elif a == "--noglow":
+			env.glow_enabled = false
 		elif a == "--vol":
 			env.volumetric_fog_enabled = true
 		elif a == "--noglow":
@@ -220,8 +237,8 @@ func _apply_mood(dt: float) -> void:
 		lantern_light.light_energy = (0.4 + 1.1 * sy) * (0.6 + 0.6 * wv) * (0.6 + dark)
 		lantern_light.omni_range = 9.0 + 10.0 * sy
 		var hs := (0.9 + 1.4 * sy) * (0.75 + 0.45 * wv)
-		lantern_halo.pixel_size = 0.0035 * hs
-		lantern_halo.modulate.a = 0.35 + 0.4 * dark
+		lantern_halo.global_transform = Transform3D(Basis().scaled(Vector3.ONE * hs / 2.3), lantern_light.global_position)
+		lantern_halo.transparency = 1.0 - (0.35 + 0.4 * dark)
 
 	# motes drift up on the in-phase, settle down on the out-phase
 	if motes:
@@ -255,26 +272,25 @@ func _glow_texture() -> Texture2D:
 	return tex
 
 
-func _make_halo(color: Color, px: float) -> Sprite3D:
-	var s := Sprite3D.new()
-	s.texture = _glow_texture()
-	s.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	s.shaded = false
-	s.transparent = true
-	s.modulate = color
-	s.pixel_size = px
-	s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+func _make_halo(color: Color, px: float) -> MeshInstance3D:
+	## Soft additive glow card. Size matches the old pixel_size * 128 px sprite.
+	## Fade with `transparency`, resize with `scale`.
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * px * 128.0
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.albedo_texture = s.texture
-	mat.vertex_color_use_as_albedo = true
-	mat.no_depth_test = false
+	mat.albedo_texture = _glow_texture()
+	mat.albedo_color = color
 	mat.disable_fog = true
-	s.material_override = mat
-	return s
+	mat.disable_receive_shadows = true
+	q.material = mat
+	var m := MeshInstance3D.new()
+	m.mesh = q
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return m
 
 
 func _build_hero() -> void:
@@ -287,7 +303,7 @@ func _build_hero() -> void:
 		m.position.y = 1.0
 		hero.add_child(m)
 	add_child(hero)
-	var tip: Node3D = hero.get_node_or_null("LanternTip")
+	var tip: Node3D = hero.find_child("LanternTip", true, false)
 	if tip == null:
 		tip = Node3D.new()
 		tip.position = Vector3(0.45, 2.3, 0.2)
@@ -299,6 +315,7 @@ func _build_hero() -> void:
 	tip.add_child(lantern_light)
 	lantern_halo = _make_halo(Color(1.0, 0.85, 0.55, 0.6), 0.008)
 	tip.add_child(lantern_halo)
+	lantern_halo.top_level = true
 
 
 func _reset_player() -> void:
@@ -571,12 +588,13 @@ func _update_flock(dt: float, playing: bool) -> void:
 				s.joined = true
 				Game.add_sheep()
 				var tw := create_tween()
-				tw.tween_property(s.halo, "modulate:a", 0.0, 2.0)
+				tw.tween_property(s.halo, "transparency", 1.0, 2.0)
 				tw.parallel().tween_property(s.light, "light_energy", 0.0, 2.0)
 			tx = s.hx + sin(t * 0.13 + s.ph) * 3.0
 			tz = s.hz + cos(t * 0.11 + s.ph) * 3.0
 			sp = 0.5
-			s.halo.modulate.a = 0.55 + 0.3 * sin(t * 1.5 + s.ph) if not s.joined else s.halo.modulate.a
+			if not s.joined:
+				s.halo.transparency = 1.0 - (0.55 + 0.3 * sin(t * 1.5 + s.ph))
 		else:
 			var row := ji / 2 + 1
 			var side := (1.0 if ji % 2 else -1.0) * (1.2 + row * 0.35)

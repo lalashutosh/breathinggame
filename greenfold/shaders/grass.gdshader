@@ -57,16 +57,17 @@ void vertex() {
 }
 
 void fragment() {
+	float y = clamp(v_y, 0.0, 1.0);  // MSAA can extrapolate varyings; pow() of a negative is NaN
 	vec3 base = grass_base.rgb;
 	vec3 tip = grass_tip.rgb * (0.85 + 0.3 * v_rnd);
 	tip = mix(tip, tip * vec3(1.08, 0.95, 0.8), smoothstep(0.4, 0.8, v_patch));
-	vec3 c = mix(base * 0.8, tip, pow(v_y, 1.6));
-	c += sun_col.rgb * v_wave * v_y * v_y * 0.12 * (0.6 + world_val);
+	vec3 c = mix(base * 0.8, tip, pow(y, 1.6));
+	c += sun_col.rgb * v_wave * y * y * 0.12 * (0.6 + world_val);
 	ALBEDO = c;
-	BACKLIGHT = tip * 0.3 * v_y;
+	BACKLIGHT = tip * 0.3 * y;
 	ROUGHNESS = 0.85;
 	SPECULAR = 0.25;
-	AO = mix(0.35, 1.0, v_y);
+	AO = mix(0.35, 1.0, y);
 	AO_LIGHT_AFFECT = 0.5;
 	if (!FRONT_FACING) { NORMAL = -NORMAL; }
 }
