@@ -88,8 +88,8 @@ func _ready() -> void:
 			if ui: ui.visible = false
 		elif a == "--nofog":
 			_dbg_nofog = true
-		elif a == "--novol":
-			env.volumetric_fog_enabled = false
+		elif a == "--vol":
+			env.volumetric_fog_enabled = true
 		elif a == "--noglow":
 			env.glow_enabled = false
 
@@ -128,7 +128,7 @@ func _build_environment() -> void:
 	env.ssao_enabled = true
 	env.ssao_radius = 1.5
 	env.ssao_intensity = 1.2
-	env.ssr_enabled = true
+	env.ssr_enabled = false
 	env.ssr_max_steps = 48
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
@@ -136,8 +136,8 @@ func _build_environment() -> void:
 	env.fog_aerial_perspective = 0.75
 	env.fog_sky_affect = 0.25
 	env.fog_height = 2.0
-	env.fog_height_density = 0.05
-	env.volumetric_fog_enabled = true
+	env.fog_height_density = 0.09
+	env.volumetric_fog_enabled = false  # shimmers when the camera turns; --vol to try it
 	env.volumetric_fog_density = 0.008
 	env.volumetric_fog_anisotropy = 0.25
 	env.volumetric_fog_length = 140.0
@@ -197,7 +197,7 @@ func _apply_mood(dt: float) -> void:
 
 	env.fog_enabled = not _dbg_nofog
 	env.fog_light_color = hor.lerp(mid, 0.5) * 0.85
-	env.fog_density = 0.0002 + mist * 0.0045
+	env.fog_density = 0.0004 + mist * 0.006
 	env.volumetric_fog_density = 0.0008 + mist * 0.012
 	env.volumetric_fog_albedo = hor.lerp(Color.WHITE, 0.5)
 	env.volumetric_fog_emission = hor * 0.02 * (1.0 - vis)
@@ -382,7 +382,7 @@ func _build_particles() -> void:
 	motes_mat.scale_curve = alpha_curve
 	motes.process_material = motes_mat
 	var q := QuadMesh.new()
-	q.size = Vector2(0.12, 0.12)
+	q.size = Vector2(0.09, 0.09)
 	var qm := StandardMaterial3D.new()
 	qm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	qm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -391,6 +391,9 @@ func _build_particles() -> void:
 	qm.albedo_texture = _glow_texture()
 	qm.vertex_color_use_as_albedo = true
 	qm.disable_fog = true
+	qm.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
+	qm.distance_fade_min_distance = 2.0
+	qm.distance_fade_max_distance = 7.0
 	q.material = qm
 	motes.draw_pass_1 = q
 	add_child(motes)
@@ -462,7 +465,7 @@ void fragment(){
 	vec2 uv = SCREEN_UV - 0.5;
 	uv.x *= SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
 	float v = smoothstep(0.35, 1.0, length(uv) * 1.25);
-	float g = (h(FRAGCOORD.xy + fract(TIME) * 100.0) - 0.5) * 0.035;
+	float g = (h(FRAGCOORD.xy) - 0.5) * 0.02;
 	COLOR = vec4(vec3(0.02, 0.025, 0.06) + g, v * strength + abs(g));
 }
 """
