@@ -13,6 +13,9 @@ localStorage). With this server running, every visitor sees the same garden:
                                           -> 201 the stored contribution, 409 if the slot is taken
 """
 import argparse
+import shutil
+import subprocess
+from urllib.parse import urlparse, parse_qs
 import json
 import os
 import threading
@@ -95,8 +98,54 @@ class GardenData:
         return 201, item
 
 
+class GreenfoldLauncher:
+    """Starts the Godot build of Greenfold (the immersive valley) in its own window and
+    collects the result it reports back when the walk ends."""
+
+    def __init__(self, base_url):
+        self.base_url = base_url
+        self.project = os.path.join(ROOT, "greenfold")
+        self.godot = os.environ.get("GODOT_BIN") or shutil.which("godot") or shutil.which("godot4")
+        self.proc = None
+        self.results = {}
+        self.lock = threading.Lock()
+
+    def available(self):
+        return bool(self.godot) and os.path.exists(os.path.join(self.project, "project.godot"))
+
+    def launch(self, mode=None):
+        if not self.available():
+            return 501, {"error": "Godot or the greenfold project was not found on this machine"}
+        with self.lock:
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()
+            sid = uuid.uuid4().hex[:12]
+            args = [self.godot, "--path", self.project, "--fullscreen", "--",
+                    f"--report={self.base_url}api/greenfold/result", f"--session={sid}", "--hub"]
+            if mode:
+                args.append(f"--mode={mode}")
+            self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return 202, {"session": sid}
+
+    def report(self, body):
+        sid = str(body.get("session", ""))
+        if not sid:
+            return 400, {"error": "missing session"}
+        with self.lock:
+            self.results[sid] = body
+        return 201, {"ok": True}
+
+    def result(self, sid):
+        with self.lock:
+            if sid in self.results:
+                return 200, {"done": True, "result": self.results[sid]}
+            running = bool(self.proc and self.proc.poll() is None)
+        return 200, {"done": False, "running": running}
+
+
 class Handler(SimpleHTTPRequestHandler):
     garden = None  # set in main
+    greenfold = None  # set in main
 
     def _json(self, status, payload):
         raw = json.dumps(payload).encode()
@@ -108,6 +157,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
+        route = self.path.split("?")[0]
+        if route == "/api/greenfold/status":
+            return self._json(200, {"available": self.greenfold.available()})
+        if route == "/api/greenfold/result":
+            sid = parse_qs(urlparse(self.path).query).get("session", [""])[0]
+            return self._json(*self.greenfold.result(sid))
         if self.path.split("?")[0] == "/api/garden":
             raw = self.garden.snapshot().encode()
             self.send_response(200)
@@ -120,13 +175,18 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        if self.path.split("?")[0] != "/api/garden/contributions":
+        route = self.path.split("?")[0]
+        if route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result"):
             return self._json(404, {"error": "not found"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "bad json"})
+        if route == "/api/greenfold/launch":
+            return self._json(*self.greenfold.launch(body.get("mode")))
+        if route == "/api/greenfold/result":
+            return self._json(*self.greenfold.report(body))
         status, payload = self.garden.plant(body)
         self._json(status, payload)
 
@@ -149,9 +209,10 @@ def main():
     args = ap.parse_args()
 
     Handler.garden = GardenData(args.data)
+    url = f"http://{args.host}:{args.port}/"
+    Handler.greenfold = GreenfoldLauncher(url)
     handler = partial(Handler, directory=WEB)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
-    url = f"http://{args.host}:{args.port}/"
     print(f"MindPlay garden at {url}  (data: {args.data})")
     if args.open:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

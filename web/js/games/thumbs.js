@@ -28,6 +28,31 @@ const SCENES = {
     ctx.fillStyle = '#213845'; for (let x = 0; x < W; x++) ctx.fillRect(x, 31 + Math.round(Math.sin(x / 5 + 2) * 2), 1, 9);
     for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? '#f2c9d8' : '#cfe5ff'; ctx.fillRect(8 + i * 13, 20 - (i % 2) * 3, 7, 7); ctx.fillStyle = '#1d2448'; ctx.fillRect(10 + i * 13, 22 - (i % 2) * 3, 3, 3); }
   },
+  valley(ctx) {
+    ['#3a3f78', '#7a5a8a', '#d9806f', '#f6b47a', '#ffd59a'].forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(0, i * 4, W, 4); });
+    fillEllipse(ctx, 44, 17, 4, 4, '#fff3cf');
+    ctx.fillStyle = '#8a7a9a'; for (let x = 0; x < W; x++) ctx.fillRect(x, 13 + Math.round(Math.abs(Math.sin(x / 6)) * -5 + Math.sin(x / 3) * 1.5) + 5, 1, 10);
+    ctx.fillStyle = '#b8955a'; for (let x = 0; x < W; x++) ctx.fillRect(x, 21 + Math.round(Math.sin(x / 11) * 2), 1, 20);
+    ctx.fillStyle = '#d9b36a'; ctx.fillRect(0, 28, W, 12);
+    const r = rng(5);
+    for (let i = 0; i < 40; i++) { ctx.fillStyle = i % 2 ? '#f0cf7e' : '#a8853f'; ctx.fillRect(Math.floor(r() * W), 27 + Math.floor(r() * 13), 1, 2); }
+    for (const x of [6, 14, 52, 58]) { ctx.fillStyle = '#2f5a3a'; ctx.fillRect(x - 1, 17, 3, 2); ctx.fillRect(x - 2, 19, 5, 3); ctx.fillStyle = '#5a3e2a'; ctx.fillRect(x, 22, 1, 2); }
+    ctx.fillStyle = '#e0643f'; ctx.fillRect(30, 29, 3, 5); ctx.fillRect(31, 28, 1, 1);
+    ctx.fillStyle = '#ffe9a8'; ctx.fillRect(34, 27, 1, 1);
+    ctx.fillStyle = '#f6f1e2'; ctx.fillRect(41, 30, 4, 2); ctx.fillRect(47, 32, 4, 2);
+    ctx.fillStyle = '#2a2a33'; ctx.fillRect(45, 30, 1, 1); ctx.fillRect(51, 32, 1, 1);
+  },
+  drift(ctx) {
+    ['#2b3a67', '#5a4a7a', '#9a5a7e', '#d9806f', '#ffc98f'].forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(0, i * 5, W, 5); });
+    ctx.fillStyle = '#5a4a72'; for (let x = 0; x < W; x++) ctx.fillRect(x, 22 + Math.round(Math.sin(x / 8) * 2 + Math.sin(x / 3) * 0.6), 1, 4);
+    ctx.fillStyle = '#2e2648'; for (let x = 0; x < W; x++) ctx.fillRect(x, 24 + Math.round(Math.sin(x / 5 + 1)), 1, 3);
+    ctx.fillStyle = '#3a3560'; ctx.fillRect(0, 26, W, 14);
+    ctx.fillStyle = 'rgba(255,240,214,0.35)';
+    for (let x = 0; x < W; x++) { const y = 15 - Math.round(Math.sin(x / 10 - 1) * 6); ctx.fillRect(x, y, 1, 2); }
+    fillEllipse(ctx, 18, 14, 3, 3, '#ffe2a8'); ctx.fillStyle = '#fffbea'; ctx.fillRect(17, 13, 2, 2);
+    ctx.fillStyle = 'rgba(255,226,168,0.5)'; for (let y = 28; y < 38; y += 2) ctx.fillRect(16 + (y % 4 ? 1 : 0), y, 4, 1);
+    ctx.fillStyle = '#fff'; [[40, 4], [52, 7], [30, 3], [58, 2]].forEach(([x, y]) => ctx.fillRect(x, y, 1, 1));
+  },
   river(ctx) {
     ['#bfe2ec', '#d6eef2'].forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(0, i * 8, W, 8); });
     ctx.fillStyle = '#6f9f78'; for (let x = 0; x < W; x++) ctx.fillRect(x, 12 + Math.round(Math.sin(x / 9) * 3), 1, 30);

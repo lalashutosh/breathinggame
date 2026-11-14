@@ -10,8 +10,8 @@ export const meta = { id: 'breath-dive', title: 'Breath Dive' };
 
 let W = 320;
 const H = 180;
-const GOAL_BREATHS = 8;
-const SESSION_FLOOR = 150; // seconds: the water reaches its calm end even without perfect breaths
+const GOAL_BREATHS = 5; // demo length: about a minute
+const SESSION_FLOOR = 55; // seconds: the water reaches its calm end even without perfect breaths
 const MAX_BEAUTY = 9;
 const STAGES = [
   [0,   'The deep is dark and quiet. Breathe.'],
@@ -271,6 +271,8 @@ export function mount(container, { onComplete, onExit } = {}) {
       S.p += (Math.min(1, target) - S.p) * Math.min(1, dt * (S.finished ? 0.6 : 0.35));
     }
     S.e = S.p * S.p * (3 - 2 * S.p);
+    // demo: every dive ends within about a minute and a quarter, however the breathing went
+    if (S.started && !S.finished && S.playT > 75) { S.finished = true; S.doneAt = S.t + 2.6; }
     // hidden world rhythm: mirror the player's own pace first, then lead toward the mood's calm pace
     const measured = breathRate();
     let targetP;

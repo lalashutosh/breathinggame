@@ -8,6 +8,15 @@
 
 export const GAMES = [
   {
+    id: 'greenfold',
+    title: 'Greenfold',
+    description: 'Walk a golden valley and gather a few stray sheep.',
+    thumb: 'valley',
+    available: true,
+    reward: { type: 'tree' },
+    load: () => import('../games/greenfold/index.js'),
+  },
+  {
     id: 'breath-dive',
     title: 'Breath Dive',
     description: 'Breathe with a pixel diver and bring a quiet reef to life.',
@@ -17,18 +26,10 @@ export const GAMES = [
     load: () => import('../games/breathdive/index.js'),
   },
   {
-    id: 'mindful-tiles',
-    title: 'Mindful Tiles',
-    description: 'Match. Breathe. Relax.',
-    thumb: 'night',
-    available: false,
-    reward: { type: 'tree' },
-  },
-  {
     id: 'drift',
     title: 'Drift',
     description: 'Guide one small light across a quiet evening.',
-    thumb: 'river',
+    thumb: 'drift',
     available: true,
     reward: { type: 'tree' },
     load: () => import('../games/drift/index.js'),

@@ -1,14 +1,25 @@
-# MindPlay · Breath Dive
+# MindPlay
 
-Two things live here:
+Three calm games around one shared garden. Finishing any game earns a sapling to plant.
 
-* **`web/`** – the MindPlay landing page: a shared pixel-art community garden on the left,
-  three game cards on the right. Finishing a game earns one sapling to plant in the garden.
-  The first card is a browser edition of Breath Dive (hold to breathe in, let go to breathe out).
+* **`web/`** – the MindPlay landing page: a shared pixel-art community garden with three game cards.
+  Each game takes about a minute (demo length) and ends with an arrival.
+  * **Greenfold** – the immersive valley walk (`greenfold/`, Godot 4). From the landing page it
+    opens fullscreen in its own window when the page is served by `serve.py` on a machine with
+    Godot; anywhere else the card runs the browser edition (`web/games/greenfold-web/`).
+  * **Breath Dive** – pixel diver, five moods, mic / keys / pacer, optional heart strap.
+  * **Drift** – the minimalist one: one small light over a quiet lake, five moods.
 * **`breathdive.py`** – the full desktop Breath Dive, driven by a real microphone and a
   Bluetooth heart-rate sensor.
+* **`greenfold/`** – the Godot project (`godot --path greenfold --fullscreen` to run it alone).
 
 ## Landing page
+
+Greenfold from the hub: `serve.py` exposes `GET /api/greenfold/status`, `POST /api/greenfold/launch`
+(starts Godot fullscreen with `--report`/`--session`/`--hub`; set `GODOT_BIN` if `godot` is not on
+`PATH`) and `POST|GET /api/greenfold/result`. Godot posts its result when the walk ends; the card
+polls for it and hands out the sapling. In hub mode the end screen button reads "Back to the garden"
+and closes the window.
 
 ```bash
 python3 serve.py --open          # http://127.0.0.1:8000, garden saved to garden.json

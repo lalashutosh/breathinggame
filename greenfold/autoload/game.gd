@@ -7,7 +7,7 @@ signal started(mode: String)
 signal ended
 signal sheep_joined(count: int)
 
-const SESSION_SECONDS := 110.0
+const SESSION_SECONDS := 60.0  # demo length: about a minute
 const NSHEEP := 7
 
 const PRESETS := {

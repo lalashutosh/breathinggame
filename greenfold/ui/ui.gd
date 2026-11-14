@@ -574,10 +574,10 @@ func _build_end_screen() -> void:
 	_gap(column, 24.0)
 
 	_walk_again = _make_button(
-		"Walk again",
+		"Back to the garden" if "--hub" in OS.get_cmdline_user_args() else "Walk again",
 		"primary",
 		15.0,
-		Vector2(180.0, 50.0)
+		Vector2(220.0, 50.0)
 	)
 	_walk_again.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_walk_again.pressed.connect(_return_to_menu)

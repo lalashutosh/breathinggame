@@ -1152,7 +1152,8 @@ export function mount(container, { onComplete, onExit } = {}) {
 			S.sync += (inst - S.sync) * Math.min(1, dt * 0.45);
 			if (S.sync > 0.55) flowTime += dt;
 
-			S.p = Math.min(1, S.p + dt / 110 * (0.55 + 0.9 * S.sync));
+			// demo length: about a minute (50-75 s); following the light gets you home sooner
+			S.p = Math.min(1, S.p + dt / 60 * (0.8 + 0.4 * S.sync));
 			S.e = S.p * S.p * (3 - 2 * S.p);
 			updateSeeds(dt);
 
@@ -1692,6 +1693,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 		drawBird();
 		drawHills();
 		drawWater();
+		drawHome();
 		drawRibbon();
 		drawSeeds();
 		drawRain();
@@ -1699,6 +1701,28 @@ export function mount(container, { onComplete, onExit } = {}) {
 		drawGatheredLights();
 		drawOrb();
 		drawVignette();
+	}
+
+	// The destination: a small warm light on the far shore that draws closer as the session
+	// goes on, so the walk visibly has an end. It sits on the horizon and is mirrored in the water.
+	function drawHome() {
+		if (S.state === 'setup') return;
+		const horizon = horizonY();
+		const x = W * (1.06 - 0.4 * S.e);
+		const y = horizon - H * 0.012;
+		const warm = [255, 214, 150];
+		const near = 0.55 + 0.45 * S.e;
+		radialGlow(x, y, H * (0.035 + 0.05 * S.e), warm, 0.22 * near, 0.5 * near);
+		ctx.fillStyle = rgba([255, 244, 220], 0.9 * near);
+		ctx.beginPath();
+		ctx.arc(x, y, Math.max(1.5, H * 0.0035 * (1 + S.e)), 0, TAU);
+		ctx.fill();
+		for (let i = 0; i < 7; i += 1) {
+			const ry = horizon + H * 0.012 + i * H * 0.014;
+			const w = H * (0.018 - i * 0.0016) * (1 + 0.4 * Math.sin(sceneTime * 1.3 + i));
+			ctx.fillStyle = rgba(warm, (0.32 - i * 0.04) * near);
+			ctx.fillRect(x - w / 2, ry, w, Math.max(1, H * 0.003));
+		}
 	}
 
 	function frame(now) {

@@ -35,6 +35,10 @@ var _bell_timer := 4.0
 var _shot_path := ""
 var _shot_time := 6.0
 var _force_p := -1.0
+var _report_url := ""   # launched from the MindPlay hub: POST the result here when the walk ends
+var _session := ""
+var _hub := false
+var _ended_once := false
 var _seq_dir := ""
 var _seq_n := 0
 var _seq_busy := false
@@ -65,6 +69,7 @@ func _ready() -> void:
 		if ui.has_signal("sound_toggled") and audio and audio.has_method("set_enabled"):
 			ui.sound_toggled.connect(audio.set_enabled)
 	Game.started.connect(_on_started)
+	Game.ended.connect(_on_ended)
 	Game.to_menu()
 	_reset_player()
 	_spawn_sheep()
@@ -91,6 +96,12 @@ func _ready() -> void:
 			if ui: ui.visible = false
 		elif a == "--nofog":
 			_dbg_nofog = true
+		elif a.begins_with("--report="):
+			_report_url = a.substr(9)
+		elif a.begins_with("--session="):
+			_session = a.substr(10)
+		elif a == "--hub":
+			_hub = true
 		elif a.begins_with("--seq="):
 			_seq_dir = a.substr(6)
 		elif a.begins_with("--turn="):
@@ -514,6 +525,23 @@ func _key(k: int) -> bool:
 	return keys.get(k, false)
 
 
+func _on_ended() -> void:
+	_ended_once = true
+	if _report_url == "":
+		return
+	var result := {
+		"session": _session, "gameId": "greenfold", "mood": Game.mode,
+		"sheep": Game.flock, "sheepTotal": Game.NSHEEP,
+		"flowPct": roundi(100.0 * Game.sync_time / maxf(Game.play_time, 1.0)),
+		"startBpm": roundi(Game.start_bpm), "endBpm": roundi(Game.end_bpm),
+		"seconds": roundi(Game.play_time),
+	}
+	var req := HTTPRequest.new()
+	add_child(req)
+	req.request_completed.connect(func(_r, _c, _h, _b): req.queue_free())
+	req.request(_report_url, PackedStringArray(["Content-Type: application/json"]), HTTPClient.METHOD_POST, JSON.stringify(result))
+
+
 func _on_started(_m: String) -> void:
 	_reset_player()
 	_spawn_sheep()
@@ -539,6 +567,8 @@ func _process(dt: float) -> void:
 	_update_birds(dt)
 	_update_camera(dt, playing)
 	_apply_mood(dt)
+	if _hub and _ended_once and Game.state == "menu":
+		get_tree().quit()
 	Game.player_pos = pl_pos
 	Game.player_yaw = pl_yaw
 
