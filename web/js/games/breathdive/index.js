@@ -4,13 +4,15 @@
 // A Bluetooth heart-rate sensor adds live bpm / HRV, and a calming heart earns extra.
 import { clamp, mixHex, pixelContext, makeSprite, flipH, fillEllipse, ringPixels, rng } from '../../lib/pixel.js';
 import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
+import { MOODS, MOOD_ORDER, wave } from './moods.js';
 
 export const meta = { id: 'breath-dive', title: 'Breath Dive' };
 
-const W = 320, H = 180;
-const GOAL_BREATHS = 6;
+let W = 320;
+const H = 180;
+const GOAL_BREATHS = 8;
+const SESSION_FLOOR = 150; // seconds: the water reaches its calm end even without perfect breaths
 const MAX_BEAUTY = 9;
-const PACER_IN = 4, PACER_OUT = 6;
 const STAGES = [
   [0,   'The deep is dark and quiet. Breathe.'],
   [1,   'Sunbeams reach down to you'],
@@ -41,15 +43,19 @@ const TURTLE_ROWS = [
 const TURTLE_PAL = { S: '#60803c', s: '#a5b955', H: '#7db46e', E: '#0f0f14', F: '#6ea55f' };
 const fishSprite = (body) => makeSprite(FISH_ROWS, { X: body, T: mixHex(body, '#000000', 0.35), E: '#0a0a0f' });
 
-const WATER_DARK = ['#123a5e', '#0f3254', '#0c2a49', '#0a233e', '#081c33', '#06162a', '#051022'];
-const WATER_LIT = ['#3a9ad9', '#2f88c8', '#2676b5', '#1e64a0', '#17528a', '#114175', '#0c3260'];
 const floorY = (x) => 150 + Math.sin(x / 23) * 5 + Math.sin(x / 9 + 1) * 3 + Math.sin(x / 47) * 6;
 
 const SETUP_HTML = `
   <div>
     <h3>Breath Dive</h3>
-    <p>Breathe in and the diver floats up. Breathe out and she sinks, trailing bubbles. Six slow breaths bring the reef to life; long out-breaths and a calming heart count extra.</p>
+    <p>Breathe in and the diver floats up. Breathe out and she sinks, trailing bubbles. The sea starts where you are and settles as you dive; long out-breaths and a calming heart count extra.</p>
     <div class="bd-setup">
+      <fieldset>
+        <legend>How are you arriving?</legend>
+        <div class="bd-moods">
+          ${MOOD_ORDER.map((id, i) => `<label class="bd-mood"><input type="radio" name="bd-mood" value="${id}" ${i === 0 ? 'checked' : ''}><i style="--a:${MOODS[id].water[0][1]};--b:${MOODS[id].water[1][2]}"></i><span>${MOODS[id].label}<small>${MOODS[id].sub}</small></span></label>`).join('')}
+        </div>
+      </fieldset>
       <fieldset>
         <legend>Breath</legend>
         <label><input type="radio" name="bd-breath" value="mic" data-mic-radio> Microphone</label>
@@ -74,12 +80,12 @@ const SETUP_HTML = `
       </fieldset>
     </div>
     <button class="btn btn-primary" data-start type="button">Start the dive</button>
-    <p class="keys"><kbd>SPACE</kbd> breathe (keys) · <kbd>P</kbd> flip in/out (mic) · <kbd>G</kbd> pacer ring</p>
+    <p class="keys"><kbd>SPACE</kbd> breathe (keys) · <kbd>P</kbd> flip in/out (mic) · <kbd>G</kbd> pacer ring · <kbd>F</kbd> fullscreen</p>
   </div>`;
 
 export function mount(container, { onComplete, onExit } = {}) {
   container.innerHTML = `
-    <div class="bd">
+    <div class="bd is-full">
       <div class="bd-stage" tabindex="0" aria-label="Breath Dive game">
         <canvas></canvas>
         <div class="bd-hud">
@@ -97,19 +103,32 @@ export function mount(container, { onComplete, onExit } = {}) {
         <button class="bd-hold" type="button" data-hold>Hold to breathe in</button>
         <button class="bd-small" type="button" data-flip hidden>Flip in / out</button>
         <button class="bd-small" type="button" data-pacer aria-pressed="true">Pacer ring</button>
+        <button class="bd-small" type="button" data-fs>Fullscreen</button>
         <button class="bd-small" type="button" data-quit>Leave the dive</button>
       </div>
       <p class="bd-note">The desktop version (<code>python3 breathdive.py</code>) adds your trained microphone filter, a Wi-Fi lamp and session logs.</p>
     </div>`;
 
   const q = (sel) => container.querySelector(sel);
-  const stageEl = q('.bd-stage'), canvas = q('canvas'), ctx = pixelContext(canvas, W, H);
+  const rootEl = q('.bd'), stageEl = q('.bd-stage'), canvas = q('canvas');
+  let ctx;
+  const fit = () => {
+    const r = stageEl.getBoundingClientRect();
+    const nw = clamp(Math.round((H * (r.width || 16)) / (r.height || 9)), 240, 480);
+    if (nw !== W || !ctx) { W = nw; ctx = pixelContext(canvas, W, H); }
+  };
+  W = 320; fit();
+  const ro = new ResizeObserver(fit); ro.observe(stageEl);
+  const toggleFs = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else rootEl.requestFullscreen?.().catch(() => {});
+  };
   const els = {
     n: q('[data-n]'), rate: q('[data-rate]'), cap: q('[data-cap]'), flash: q('[data-flash]'), help: q('[data-help]'),
     vitals: q('[data-vitals]'), src: q('[data-src]'), meter: q('[data-meter]'), intro: q('.bd-intro'),
     hold: q('[data-hold]'), flip: q('[data-flip]'), pacer: q('[data-pacer]'),
     micOpts: q('[data-mic-opts]'), micStatus: q('[data-mic-status]'), scheme: q('[data-scheme]'),
-    hrBtn: q('[data-hr-connect]'), hrStatus: q('[data-hr-status]'), start: q('[data-start]'),
+    hrBtn: q('[data-hr-connect]'), hrStatus: q('[data-hr-status]'), start: q('[data-start]'), fs: q('[data-fs]'),
   };
 
   // ---- sprites & scenery
@@ -130,6 +149,9 @@ export function mount(container, { onComplete, onExit } = {}) {
   const heart = new BleHeart();
   const S = {
     started: false, finished: false, done: false, breathMode: 'keys',
+    mood: 'dive', M: MOODS.dive, p: 0, e: 0, playT: 0,
+    worldPhase: 0, worldP: MOODS.dive.period[0], worldVal: 0, rising: true, firstRate: null, stageName: 'Mirror',
+    rain: [], glows: [],
     inhaling: false, pacer: true,
     lung: 0.3, phase: 'rest', level: 0, t: 0, cam: 0,
     beauty: 0, light: 0, stage: 0, unlock: [0],
@@ -139,6 +161,9 @@ export function mount(container, { onComplete, onExit } = {}) {
     sparkles: [], doneAt: null, capUntil: 0, flashUntil: 0, raf: 0, last: performance.now(),
   };
   const reveal = (i) => (S.unlock[i] == null ? 0 : clamp((S.t - S.unlock[i]) / 1.6));
+  const V = (k) => { const a = S.M[k]; return a[0] + (a[1] - a[0]) * S.e; };
+  const C = (k) => mixHex(S.M[k][0], S.M[k][1], S.e);
+  const life = () => V('life');
   const setCaption = (text) => { els.cap.textContent = text; els.cap.classList.remove('is-dim'); S.capUntil = S.t + 4.5; };
   const flash = (text) => { els.flash.textContent = text; els.flash.classList.add('is-on'); S.flashUntil = S.t + 2.2; };
   const setStatus = (el, text, cls) => { el.textContent = text; el.className = 'bd-status' + (cls ? ` is-${cls}` : ''); };
@@ -148,6 +173,8 @@ export function mount(container, { onComplete, onExit } = {}) {
   if (!support.bluetooth) { els.hrBtn.disabled = true; setStatus(els.hrStatus, support.secure ? 'Web Bluetooth needs Chrome or Edge (desktop or Android).' : 'Bluetooth needs https or localhost.', 'err'); }
   container.querySelectorAll('input[name="bd-breath"]').forEach((r) => r.addEventListener('change', () => { els.micOpts.hidden = r.value !== 'mic' && support.mic; }));
   els.scheme.addEventListener('change', () => { mic.scheme = els.scheme.value; });
+  container.querySelectorAll('input[name="bd-mood"]').forEach((r) => r.addEventListener('change', () => { S.M = MOODS[r.value]; S.mood = r.value; S.worldP = S.M.period[0]; }));
+  els.fs.addEventListener('click', toggleFs);
   heart.onChange = () => {
     setStatus(els.hrStatus, heart.connected ? `connected: ${heart.status}` : heart.status, heart.connected ? 'ok' : heart.status.startsWith('lost') ? 'err' : '');
     if (heart.connected) els.hrBtn.textContent = 'Connected';
@@ -163,10 +190,14 @@ export function mount(container, { onComplete, onExit } = {}) {
       try { els.start.disabled = true; setStatus(els.micStatus, 'asking for the microphone...'); await mic.start(); }
       catch (e) { setStatus(els.micStatus, e.name === 'NotAllowedError' ? 'Microphone permission was refused.' : e.message, 'err'); els.start.disabled = false; return; }
     }
+    S.mood = container.querySelector('input[name="bd-mood"]:checked').value;
+    S.M = MOODS[S.mood];
+    S.worldP = S.M.period[0];
     S.breathMode = mode; S.started = true;
     els.intro.remove();
+    rootEl.requestFullscreen?.().catch(() => {});
     stageEl.focus();
-    setCaption(STAGES[0][1]);
+    setCaption(S.M.intro);
     els.hold.hidden = mode !== 'keys';
     els.flip.hidden = mode !== 'mic';
     els.meter.hidden = mode !== 'mic';
@@ -179,6 +210,7 @@ export function mount(container, { onComplete, onExit } = {}) {
     if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) setInhale(true); }
     else if (e.code === 'KeyP' && S.breathMode === 'mic') mic.flip();
     else if (e.code === 'KeyG') togglePacer();
+    else if (e.code === 'KeyF') toggleFs();
   };
   const onKeyUp = (e) => { if (e.code === 'Space') { e.preventDefault(); setInhale(false); } };
   window.addEventListener('keydown', onKeyDown);
@@ -220,9 +252,10 @@ export function mount(container, { onComplete, onExit } = {}) {
     S.beauty = Math.min(MAX_BEAUTY, S.beauty + gain);
     S.counter.slowest = Math.max(S.counter.slowest, inDur + outDur);
     flash(`+${gain.toFixed(1)}${notes.length ? '  ·  ' + notes.join(' · ') : ''}`);
-    while (S.stage + 1 < STAGES.length && S.beauty >= STAGES[S.stage + 1][0]) { S.stage++; S.unlock[S.stage] = S.t; setCaption(STAGES[S.stage][1]); }
+    while (S.stage + 1 < STAGES.length && S.beauty >= STAGES[S.stage + 1][0]) { S.stage++; S.unlock[S.stage] = S.t; if ((['dive', 'low', 'anxious'].includes(S.mood) && life() > 0.25) || S.stage === STAGES.length - 1) setCaption(S.stage === STAGES.length - 1 ? S.M.arrive : STAGES[S.stage][1]); }
     els.n.textContent = String(S.counter.count);
     const r = breathRate();
+    if (r && S.firstRate == null) S.firstRate = r;
     els.rate.textContent = r ? `${r.toFixed(1)} breaths / min` : ' ';
     if (!S.finished && (S.counter.count >= GOAL_BREATHS || S.beauty >= MAX_BEAUTY)) { S.finished = true; S.doneAt = S.t + 2.6; }
   }
@@ -231,13 +264,28 @@ export function mount(container, { onComplete, onExit } = {}) {
   function update(dt) {
     S.t += dt; S.cam += dt * 5;
     const now = S.t;
-    const cyc = now % (PACER_IN + PACER_OUT);
-    const pacerV = cyc < PACER_IN ? 0.5 - 0.5 * Math.cos((Math.PI * cyc) / PACER_IN) : 0.5 + 0.5 * Math.cos((Math.PI * (cyc - PACER_IN)) / PACER_OUT);
+    // session progress: breaths drive it, a slow time floor guarantees the calm end, finishing arrives
+    if (S.started) {
+      S.playT += dt;
+      const target = S.finished ? 1 : Math.max(S.beauty / MAX_BEAUTY, S.playT / SESSION_FLOOR);
+      S.p += (Math.min(1, target) - S.p) * Math.min(1, dt * (S.finished ? 0.6 : 0.35));
+    }
+    S.e = S.p * S.p * (3 - 2 * S.p);
+    // hidden world rhythm: mirror the player's own pace first, then lead toward the mood's calm pace
+    const measured = breathRate();
+    let targetP;
+    if (S.started && S.playT < 20) { targetP = measured ? clamp(60 / measured, 2.5, 12) : S.M.period[0]; S.stageName = 'Mirror'; }
+    else { targetP = S.M.period[0] + (S.M.period[1] - S.M.period[0]) * Math.min(1, S.e * 1.15); S.stageName = 'Lead'; }
+    S.worldP += (targetP - S.worldP) * Math.min(1, dt * 0.4);
+    S.worldPhase = (S.worldPhase + dt / S.worldP) % 1;
+    S.worldVal = wave(S.worldPhase);
+    S.rising = S.worldPhase < 0.4;
+    const pacerV = S.worldVal;
 
     if (S.started && !S.finished) {
       let phase, level;
       if (S.breathMode === 'guide') {
-        phase = cyc < PACER_IN ? 'in' : 'out'; level = 0.6; S.lung = pacerV;
+        phase = S.rising ? 'in' : 'out'; level = 0.6; S.lung = pacerV;
       } else {
         if (S.breathMode === 'mic') { phase = mic.phase; level = mic.level; }
         else {
@@ -274,7 +322,8 @@ export function mount(container, { onComplete, onExit } = {}) {
     const target = 138 - S.lung * 82 + Math.sin(now * 0.9) * 2, prev = d.y;
     d.y += (target - d.y) * Math.min(1, dt * 2.5);
     d.vy = (d.y - prev) / Math.max(dt, 1e-3);
-    d.x = 92 + Math.sin(now * 0.3) * 6;
+    const surge = V('surge');
+    d.x = 92 + Math.sin(now * 0.3) * 6 + Math.sin(now * 0.9) * 7 * surge;
     d.kick += dt * (2.2 + Math.abs(d.vy) * 0.08);
     if (S.phase === 'out') {
       d.acc += dt * (5 + 12 * Math.max(S.level, 0.3));
@@ -282,8 +331,23 @@ export function mount(container, { onComplete, onExit } = {}) {
     }
     for (const b of d.bubbles) { b.y -= (14 + b.r * 6) * dt; b.x += Math.sin(now * 4 + b.ph) * 6 * dt; }
     d.bubbles = d.bubbles.filter((b) => b.y > 4);
-    for (const s of snow) { s.y += s.v * dt; s.x -= dt * 2; if (s.y > H) { s.y = -2; s.x = Math.random() * W; } if (s.x < 0) s.x += W; }
-    for (const f of reefFish) { f.x += f.dir * f.sp * dt; if (f.x > 330) f.dir = -1; if (f.x < -10) f.dir = 1; }
+    const drift = S.rising ? -0.6 : 0.4; // motes lift on the in-phase, settle on the out-phase
+    for (const s of snow) {
+      s.y += (s.v * (0.6 + drift * 0.5) + drift * 3) * dt;
+      s.x -= dt * (2 + 26 * surge * (0.6 + 0.4 * Math.sin(now * 0.8 + s.v)));
+      if (s.y > H) { s.y = -2; s.x = Math.random() * W; } if (s.y < -3) s.y = H;
+      if (s.x < 0) s.x += W; if (s.x > W) s.x -= W;
+    }
+    // rain dimples on a stormy surface
+    if (Math.random() < dt * 40 * V('rain')) S.rain.push({ x: Math.random() * W, life: 1 });
+    for (const r of S.rain) r.life -= dt * 2.2;
+    S.rain = S.rain.filter((r) => r.life > 0);
+    // bioluminescent plankton (night)
+    const g = V('glow');
+    if (Math.random() < dt * 30 * g) S.glows.push({ x: Math.random() * W, y: 20 + Math.random() * (H - 50), life: 1.5 + Math.random() * 2, ph: Math.random() * 6.28 });
+    for (const p of S.glows) { p.life -= dt; p.y -= dt * 1.5; }
+    S.glows = S.glows.filter((p) => p.life > 0);
+    for (const f of reefFish) { f.x += f.dir * f.sp * dt; if (f.x > W + 10) f.dir = -1; if (f.x < -10) f.dir = 1; }
     if (S.stage >= 8 && Math.random() < dt * 8) S.sparkles.push({ x: Math.random() * W, y: H - 20 - Math.random() * 100, life: 1 + Math.random() });
     for (const s of S.sparkles) { s.y -= 8 * dt; s.life -= dt; }
     S.sparkles = S.sparkles.filter((s) => s.life > 0);
@@ -315,31 +379,47 @@ export function mount(container, { onComplete, onExit } = {}) {
 
   // ---- draw
   function draw() {
-    const t = S.t, L = S.light;
+    const t = S.t, L = S.e, wv = S.worldVal, lf = life();
     ctx.clearRect(0, 0, W, H);
-    const bandH = Math.ceil(H / WATER_DARK.length);
-    WATER_DARK.forEach((c, i) => { ctx.fillStyle = mixHex(c, WATER_LIT[i], L); ctx.fillRect(0, i * bandH, W, bandH); });
+    const [w0, w1] = S.M.water;
+    const bandH = Math.ceil(H / w0.length);
+    w0.forEach((c, i) => { ctx.fillStyle = mixHex(c, w1[i], L); ctx.fillRect(0, i * bandH, W, bandH); });
+    // sun / moon glow seen through the surface
+    const sun = V('sun'), moon = V('moon');
+    if (sun > 0.01) { ctx.globalAlpha = Math.min(1, sun) * (0.35 + 0.15 * wv); fillEllipse(ctx, Math.round(W * 0.7), -6, 60, 26, '#ffd9a0'); fillEllipse(ctx, Math.round(W * 0.7), -8, 30, 14, '#fff3d6'); ctx.globalAlpha = 1; }
+    if (moon > 0.01) { ctx.globalAlpha = moon * 0.35; fillEllipse(ctx, Math.round(W * 0.25), -4, 34, 14, '#c9d6ff'); fillEllipse(ctx, Math.round(W * 0.25), -6, 14, 7, '#eef2ff'); ctx.globalAlpha = 1; }
+    // the surface: choppy in a storm, glassy when calm
+    const chop = V('surge');
+    ctx.fillStyle = 'rgba(220,240,255,0.18)';
+    for (let x = 0; x < W; x++) { const y = 3 + Math.round(Math.sin(x / (6 - 3 * chop) + t * (1 + 3 * chop)) * (0.5 + 2.5 * chop) + Math.sin(x / 17 - t * 0.7) * chop * 2); ctx.fillRect(x, Math.max(0, y), 1, 1); }
+    for (const r of S.rain) { ctx.fillStyle = `rgba(230,245,255,${0.5 * r.life})`; const rr = Math.round((1 - r.life) * 5); ctx.fillRect(Math.round(r.x) - rr, 4, rr * 2 + 1, 1); ctx.fillRect(Math.round(r.x), 5 + Math.round((1 - r.life) * 10), 1, 2); }
 
-    const sb = reveal(1);
-    if (sb > 0) {
-      ctx.globalAlpha = sb * (0.05 + 0.09 * L); ctx.fillStyle = '#fff2c0';
-      for (let i = 0; i < 5; i++) {
+    const sb = Math.max(reveal(1), S.mood === 'dive' ? 0 : 1) * V('beams');
+    if (sb > 0.01) {
+      // light swells on the in-phase, softens on the out-phase
+      ctx.globalAlpha = Math.min(1, sb) * (0.05 + 0.09 * L) * (0.75 + 0.5 * wv); ctx.fillStyle = C('beamCol');
+      for (let i = 0; i < Math.ceil(W / 62); i++) {
         const x0 = 40 + i * 62 + Math.sin(t * 0.25 + i) * 10, w = 8 + (i % 3) * 4, drift = 30 + Math.sin(t * 0.2 + i * 2) * 20;
         ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0 + w, 0); ctx.lineTo(x0 + w * 3 + drift, H); ctx.lineTo(x0 - w + drift, H); ctx.fill();
       }
       ctx.globalAlpha = 1;
     }
+    const siltN = Math.round(snow.length * Math.min(1, V('silt') / 3.2) * 1), siltBig = V('silt') > 1.4;
     ctx.fillStyle = `rgba(200,230,255,${0.25 + L * 0.35})`;
-    for (const s of snow) ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
+    for (let i = 0; i < snow.length; i++) {
+      const s = snow[i];
+      ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
+      if (V('silt') > 1 && i < siltN) { ctx.fillRect(Math.round((s.x * 1.7 + 50) % W), Math.round((s.y * 1.3 + 30) % H), siltBig ? 2 : 1, 1); }
+    }
 
-    const sf = reveal(3);
+    const sf = reveal(3) * lf;
     if (sf > 0) {
       const cx = ((t * 18) % (W + 160)) - 80, cy = 62 + Math.sin(t * 0.6) * 12;
       ctx.globalAlpha = sf;
       for (const f of school) ctx.drawImage(schoolFish, Math.round(cx + f.ox + Math.sin(t * 3 + f.ph) * 2), Math.round(cy + f.oy + Math.sin(t * 2 + f.ph) * 3));
       ctx.globalAlpha = 1;
     }
-    const jf = reveal(6);
+    const jf = Math.max(reveal(6) * lf, V('glow') * 0.6);
     if (jf > 0) for (const j of jellies) {
       const y = 150 - ((t * 6 + j.ph * 20) % 150), x = j.x + Math.sin(t * 0.7 + j.ph) * 12, pulse = Math.sin(t * 2.2 + j.ph);
       ctx.globalAlpha = jf * 0.75;
@@ -364,7 +444,7 @@ export function mount(container, { onComplete, onExit } = {}) {
       fillEllipse(ctx, sx, fy + 1, b.r, Math.round(b.r * 0.6), mixHex('#13263b', '#2d5273', L));
       fillEllipse(ctx, sx - 2, fy - 2, Math.round(b.r * 0.5), 2, mixHex('#1b3450', '#4a7ba3', L));
     }
-    const ck = reveal(4);
+    const ck = reveal(4) * Math.max(lf, 0.35);
     if (ck > 0) {
       ctx.globalAlpha = ck;
       for (const c of corals) {
@@ -377,21 +457,21 @@ export function mount(container, { onComplete, onExit } = {}) {
         const sx = worldToScreen(k.x); if (sx < -10 || sx > W + 10) continue;
         const fy = Math.round(floorY(sx + S.cam));
         for (let i = 0; i < k.h; i++) {
-          const y = fy - i, off = Math.round(Math.sin(t * 1.5 + i / 7 + k.ph) * 3 * (i / k.h));
+          const y = fy - i, off = Math.round((Math.sin(t * 1.5 + i / 7 + k.ph) * 3 + Math.sin(t * 0.9 + k.ph) * 5 * chop + (wv - 0.5) * 2) * (i / k.h));
           ctx.fillStyle = i % 2 ? '#2d8a5a' : '#3fb978'; ctx.fillRect(sx + off, y, 1, 1);
           if (i % 6 === 3) { ctx.fillStyle = '#4fd08a'; ctx.fillRect(sx + off + (i % 12 === 3 ? 1 : -2), y, 2, 1); }
         }
       }
       ctx.globalAlpha = 1;
     }
-    const rf = reveal(5);
+    const rf = reveal(5) * lf;
     if (rf > 0) {
       ctx.globalAlpha = rf;
       for (const f of reefFish) { const y = floorY(f.x + S.cam) - 14 - Math.sin(t * 1.3 + f.ph) * 5; ctx.drawImage(f.dir > 0 ? f.r : f.l, Math.round(f.x), Math.round(y)); }
       ctx.globalAlpha = 1;
     }
     const tu = reveal(7);
-    if (tu > 0) ctx.drawImage(turtleFrames[Math.floor(t * 2) % 2], Math.round(26 + Math.sin(t * 0.4) * 10 - (1 - tu) * 70), Math.round(S.diver.y + 22 + Math.sin(t * 0.8) * 4));
+    if (tu > 0 && lf > 0.3) ctx.drawImage(turtleFrames[Math.floor(t * 2) % 2], Math.round(26 + Math.sin(t * 0.4) * 10 - (1 - tu) * 70), Math.round(S.diver.y + 22 + Math.sin(t * 0.8) * 4));
 
     const d = S.diver, img = diverFrames[Math.floor(d.kick) % 2], ang = clamp(-d.vy * 0.9, -14, 14);
     ctx.save();
@@ -405,9 +485,18 @@ export function mount(container, { onComplete, onExit } = {}) {
       else { fillEllipse(ctx, x, y, b.r, b.r, '#c8ebff'); fillEllipse(ctx, x, y, b.r - 1, b.r - 1, '#468cf5'); ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, y - 1, 1, 1); }
     }
 
-    ctx.fillStyle = `rgba(2,8,20,${0.4 * (1 - L)})`; ctx.fillRect(0, 0, W, H);
+    // bioluminescent plankton
+    for (const p of S.glows) {
+      const a = Math.min(1, p.life) * (0.5 + 0.5 * Math.sin(t * 2 + p.ph)) * 0.8;
+      ctx.fillStyle = `rgba(120,255,230,${a})`; ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1);
+      ctx.fillStyle = `rgba(120,255,230,${a * 0.25})`; ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y), 3, 1); ctx.fillRect(Math.round(p.x), Math.round(p.y) - 1, 1, 3);
+    }
+    // turbidity (silt, storm murk) then depth darkness
+    const murk = V('murk');
+    if (murk > 0.005) { ctx.globalAlpha = murk; ctx.fillStyle = S.M.murkCol; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+    ctx.fillStyle = `rgba(2,8,20,${V('dark')})`; ctx.fillRect(0, 0, W, H);
     const gl = reveal(8);
-    if (gl > 0) { ctx.fillStyle = `rgba(255,205,110,${0.14 * gl})`; ctx.fillRect(0, 0, W, H); }
+    if (gl > 0 && sun + (S.mood === 'dive' ? 1 : 0) > 0.3) { ctx.fillStyle = `rgba(255,205,110,${0.14 * gl})`; ctx.fillRect(0, 0, W, H); }
     for (const s of S.sparkles) { ctx.fillStyle = s.life > 0.5 ? '#fff6c8' : '#ffd36a'; ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1); }
 
     // lung bar + pacer ring
@@ -416,13 +505,11 @@ export function mount(container, { onComplete, onExit } = {}) {
       ctx.fillStyle = '#ffc86e'; ctx.fillRect(11, 165, Math.round(60 * S.lung), 4);
     }
     if (S.pacer && S.started) {
-      const c = t % (PACER_IN + PACER_OUT);
-      const ph = c < PACER_IN ? c / PACER_IN : 1 - (c - PACER_IN) / PACER_OUT;
-      const r = Math.round(6 + 9 * ph);
+      const r = Math.round(6 + 9 * wv);
       ctx.fillStyle = 'rgba(110,230,235,0.7)';
-      for (const [x, y] of ringPixels(292, 150, r)) ctx.fillRect(x, y, 1, 1);
+      for (const [x, y] of ringPixels(W - 28, 150, r)) ctx.fillRect(x, y, 1, 1);
       ctx.fillStyle = S.phase === 'in' ? '#bfffff' : S.phase === 'out' ? '#6ee6eb' : '#3d8a90';
-      ctx.fillRect(291, 149, 3, 3);
+      ctx.fillRect(W - 29, 149, 3, 3);
     }
   }
 
@@ -435,20 +522,22 @@ export function mount(container, { onComplete, onExit } = {}) {
     done.innerHTML = `
       <div>
         <h3>Dive complete</h3>
-        <p>You surfaced slowly. The reef remembers.</p>
+        <p>${S.M.arrive}</p>
         <div class="stats">
           <div><b>${c.count}</b>breaths</div>
+          ${S.firstRate && breathRate() ? `<div><b>${S.firstRate.toFixed(0)} → ${breathRate().toFixed(0)}</b>breaths / min</div>` : ''}
           <div><b>${c.slowest ? c.slowest.toFixed(1) + 's' : '–'}</b>slowest breath</div>
           <div><b>${S.stage + 1}/${STAGES.length}</b>reef awake</div>
           ${hrLine}${rmssd ? `<div><b>${rmssd.toFixed(0)} ms</b>HRV</div>` : ''}
         </div>
+        <p class="bd-step">${S.M.step}</p>
         <button class="btn btn-primary" type="button" data-collect>Collect your sapling</button>
       </div>`;
     stageEl.appendChild(done);
     done.querySelector('[data-collect]').focus();
     done.querySelector('[data-collect]').addEventListener('click', () => {
       onComplete && onComplete({
-        gameId: meta.id, breaths: c.count, slowestBreath: c.slowest, stage: S.stage + 1, stages: STAGES.length,
+        gameId: meta.id, mood: S.mood, breaths: c.count, slowestBreath: c.slowest, stage: S.stage + 1, stages: STAGES.length,
         breathSource: S.breathMode, heart: S.startHr ? { start: S.startHr, end: S.lastHr, rmssd, calmBreaths: S.calmBreaths, sensor: heart.name } : null,
       });
     }, { once: true });
@@ -467,6 +556,8 @@ export function mount(container, { onComplete, onExit } = {}) {
   return {
     unmount() {
       cancelAnimationFrame(S.raf);
+      ro.disconnect();
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       mic.stop(); heart.disconnect();

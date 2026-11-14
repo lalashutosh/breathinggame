@@ -22,6 +22,26 @@ back to `localStorage`. Add `?time=day|dusk|night` to preview a time of day,
 `?play=breath-dive` to deep-link into the game, `?debug=1` to surface errors and get a
 `window.mindplay` dev hook.
 
+### Moods (browser Breath Dive)
+
+The setup screen asks how you are arriving: **Just dive**, **Anxious**, **Overwhelmed**, **Low** or
+**Restless** (`web/js/games/breathdive/moods.js`). Same reef, different weather; each mood starts
+by matching you and drifts to its goal as you dive (iso principle):
+
+| mood | starts as | ends as | pace (s / breath) |
+|---|---|---|---|
+| Just dive | dark, quiet deep | golden, fully alive reef | 4.6 → 10 |
+| Anxious | storm on the surface, rain, surge, murky | still, clear turquoise | 3.4 → 10 |
+| Overwhelmed | thick silt, almost nothing in view | silt settles, a few gentle things | 4 → 10 |
+| Low | cold pre-dawn water, no life | sunrise, warm light, busy reef (lifts, not sedates) | 4.6 → 8 |
+| Restless | moonlit night dive | dark and still, soft glowing plankton | 4.2 → 11 |
+
+A hidden world rhythm (40 % rise, 60 % fall) mirrors your own pace for the first 20 s, then leads
+toward the mood's pace; light, kelp and drifting particles move with it, and the pacer ring follows
+it. Breaths move the dive on, and a slow time floor makes sure the water always reaches its calm end.
+The end screen shows breaths/min start → end and one small real-world step. The game fills the
+window and asks for browser fullscreen on start (`F` toggles).
+
 ### Sensors in the browser game
 
 Breath Dive's setup screen offers three breath sources and an optional heart sensor:
