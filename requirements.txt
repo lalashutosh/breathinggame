@@ -1,0 +1,5 @@
+pygame>=2.5
+numpy
+sounddevice
+bleak
+flux_led  # optional: Wi-Fi lamp
