@@ -157,9 +157,15 @@ export class BreathModel {
 
 /** Raw microphone capture at 16 kHz with browser processing off. onAudio(Float32Array) per block. */
 export async function openMic16k(onAudio, { deviceId } = {}) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-  });
+  const base = { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: deviceId ? { exact: deviceId } : undefined } });
+  } catch (e) {
+    // the chosen mic was unplugged: fall back to the default one
+    if (!deviceId || (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError')) throw e;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+  }
   const AC = window.AudioContext || window.webkitAudioContext;
   let ctx;
   try { ctx = new AC({ sampleRate: 16000 }); } catch { ctx = new AC(); }

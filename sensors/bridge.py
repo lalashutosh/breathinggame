@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--hr", action="store_true", help="heart rate from a Bluetooth strap")
     ap.add_argument("--hr-device", default=None, help="BLE name (part) or address")
     ap.add_argument("--device", type=int, default=None, help="mic index")
+    ap.add_argument("--source", default=None, help="PipeWire/PulseAudio source name (see: pactl list short sources)")
     ap.add_argument("--mic-scheme", choices=["alternate", "exhale"], default="alternate")
     ap.add_argument("--gate", type=float, default=9)
     ap.add_argument("--span", type=float, default=20)
@@ -69,6 +70,13 @@ def main():
     ap.add_argument("--min-breath", type=float, default=0.2)
     ap.add_argument("--raw", action="store_true")
     a = ap.parse_args()
+
+    if a.source:
+        # open the chosen mic through PipeWire (resamples to 16 kHz; JACK device indexes cannot)
+        os.environ["PIPEWIRE_NODE"] = a.source
+        os.environ["PULSE_SOURCE"] = a.source
+        if a.device is None:
+            a.device = "pipewire"
 
     bio = bd.Bio()
     model_path = os.path.join(ROOT, "web", "models", "breath.json")

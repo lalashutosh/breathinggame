@@ -7,6 +7,72 @@ export const support = {
   bluetooth: !!navigator.bluetooth,
 };
 
+// ---- microphone choice (shared by every mode; remembered in this browser)
+const MIC_KEY = 'anasa.micDevice';
+export function savedMic() { try { return localStorage.getItem(MIC_KEY) || ''; } catch { return ''; } }
+export function saveMic(id) { try { if (id) localStorage.setItem(MIC_KEY, id); else localStorage.removeItem(MIC_KEY); } catch { /* storage blocked */ } }
+
+/** Audio inputs the browser can see. Labels stay empty until the page has had mic permission once. */
+export async function listMics() {
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  return devs.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+}
+
+/** getUserMedia for the chosen mic, falling back to the default one if it was unplugged. */
+export async function getMicStream(constraints = {}, deviceId = savedMic()) {
+  const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, ...constraints };
+  if (deviceId) {
+    try { return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: deviceId } } }); }
+    catch (e) { if (e.name !== 'OverconstrainedError' && e.name !== 'NotFoundError') throw e; }
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: base });
+}
+
+/**
+ * A <select> listing the microphones. The choice is saved and used by every MicBreath.start().
+ * onChange(deviceId) fires after a new choice is saved.
+ */
+export function micPicker({ className = '', onChange } = {}) {
+  const sel = document.createElement('select');
+  sel.className = className;
+  sel.setAttribute('aria-label', 'Microphone');
+  if (!support.mic) { sel.disabled = true; sel.innerHTML = '<option>no microphone access</option>'; return sel; }
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  async function fill() {
+    let mics = [];
+    try { mics = await listMics(); } catch { /* ignore */ }
+    const saved = savedMic();
+    const named = mics.some((m) => m.label);
+    sel.innerHTML = '<option value="">Default microphone</option>'
+      + mics.map((m, i) => `<option value="${esc(m.deviceId)}">${esc(m.label || `Microphone ${i + 1}`)}</option>`).join('')
+      + (named ? '' : '<option value="__ask">Show microphone names…</option>');
+    sel.value = mics.some((m) => m.deviceId === saved) ? saved : '';
+  }
+  sel.addEventListener('change', async () => {
+    if (sel.value === '__ask') {
+      try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); }
+      catch { /* refused: keep the default */ }
+      await fill();
+      return;
+    }
+    saveMic(sel.value);
+    onChange?.(sel.value);
+  });
+  navigator.mediaDevices.addEventListener?.('devicechange', fill);
+  fill();
+  return sel;
+}
+
+/** Microphones on the machine running serve.py (for the Godot mode), or [] if unavailable. */
+export async function listServerMics() {
+  try { const r = await fetch('/api/mics', { cache: 'no-store' }); return r.ok ? (await r.json()).mics || [] : []; }
+  catch { return []; }
+}
+const SERVER_MIC_KEY = 'anasa.micSource';
+export function savedServerMic() { try { return localStorage.getItem(SERVER_MIC_KEY) || ''; } catch { return ''; } }
+export function saveServerMic(name) { try { if (name) localStorage.setItem(SERVER_MIC_KEY, name); else localStorage.removeItem(SERVER_MIC_KEY); } catch { /* storage blocked */ } }
+
 const median = (arr) => { const a = arr.slice().sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 const percentile = (arr, p) => { const a = arr.slice().sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor((p / 100) * a.length))]; };
 
@@ -91,64 +157,94 @@ export class BreathTracker {
   }
 }
 
-/** Microphone breath input. start() asks for permission; then read .level / .phase / .status. */
-export class MicBreath {
-  constructor({ scheme = 'alternate' } = {}) {
-    this.tracker = new BreathTracker(scheme);
-    this.level = 0; this.phase = 'rest'; this.status = 'off'; this.ready = false;
+/**
+ * Out-breath detector, tuned on labelled sessions recorded with a close (clip-on) mic.
+ * A mouth exhale onto the mic is low-frequency wind; a nose inhale is a thin high hiss.
+ * So: an out-breath = sound above the room level whose energy leans low (40-800 Hz vs 800-3000 Hz).
+ *  1. band level 40-3000 Hz and "tilt" (low band dB - high band dB), per 32 ms block
+ *  2. median over 7 blocks (~0.2 s) kills clicks
+ *  3. room level and room tilt measured in the first 3 s, the room level then tracks slowly
+ *  4. on when level > room + onDb and tilt > roomTilt + tiltDb, with 2 dB hysteresis
+ */
+export class ExhaleDetector {
+  constructor(sampleRate, fftSize, { lo = 40, split = 800, hi = 3000, onDb = 3, tiltDb = -6, hyst = 2, med = 7, calibS = 3, blockS = 0.032 } = {}) {
+    const binHz = sampleRate / fftSize, nBins = fftSize / 2 + 1;
+    this.low = []; this.high = [];
+    for (let i = 1; i < nBins; i++) { const f = i * binHz; if (f >= lo && f < split) this.low.push(i); else if (f >= split && f < hi) this.high.push(i); }
+    Object.assign(this, { onDb, tiltDb, hyst, med });
+    this.lh = []; this.th = []; this.calib = []; this.calibN = Math.round(calibS / blockS);
+    this.room = null; this.roomTilt = 0; this.on = false; this.above = 0; this.db = -160;
   }
-  set scheme(s) { this.tracker.scheme = s; }
+  /** @param {Float32Array} spec dB per bin. @returns {number|null} 0..1 out-breath strength, null while calibrating. */
+  step(spec, calibDone = false) {
+    const pow = (idx) => { let s = 0; for (const i of idx) s += Math.pow(10, (Number.isFinite(spec[i]) ? spec[i] : -160) / 10); return s + 1e-14; };
+    const pl = pow(this.low), ph = pow(this.high);
+    const L = 10 * Math.log10(pl + ph), tilt = 10 * Math.log10(pl) - 10 * Math.log10(ph);
+    this.db = L;
+    this.lh.push(L); this.th.push(tilt);
+    if (this.lh.length > this.med) { this.lh.shift(); this.th.shift(); }
+    if (this.room == null) {
+      this.calib.push([L, tilt]);
+      if (this.calib.length >= this.calibN || (calibDone && this.calib.length >= 10)) {
+        this.room = median(this.calib.map((c) => c[0]));
+        this.roomTilt = median(this.calib.map((c) => c[1]));
+      }
+      return null;
+    }
+    const l = median(this.lh) - this.room, t = median(this.th) - this.roomTilt;
+    const h = this.on ? this.hyst : 0;
+    this.on = l > this.onDb - h && t > this.tiltDb - h;
+    if (!this.on) this.room += L > this.room ? 0.002 * (L - this.room) : 0.05 * (L - this.room);
+    this.above = l;
+    return this.on ? Math.max(0.3, Math.min(1, l / 15)) : 0;
+  }
+}
+
+/**
+ * Microphone breath input, out-breath only. start() asks for permission; then read .level / .phase / .status.
+ * phase: 'out' while an out-breath is heard, 'in' otherwise (the world rises / follows its path), 'rest' while calibrating.
+ */
+export class MicBreath {
+  constructor() { this.level = 0; this.phase = 'rest'; this.status = 'off'; this.ready = false; }
+  set scheme(_) { /* out-breath only now */ }
   async start() {
     if (!support.mic) throw new Error(support.secure ? 'This browser has no microphone access' : 'Microphone needs https or localhost');
-    // Prefer the trained in/out model (web/models/breath.json, built from recorded sessions).
-    try {
-      const { BreathModel, openMic16k } = await import('./breathmodel.js');
-      const model = await BreathModel.load();
-      this.model = model; this.modelState = model.state;
-      this.mic16 = await openMic16k((block) => {
-        const st = model.push(block);
-        this.modelState = st; this.phase = st.phase; this.level = Math.min(1, st.pIn + st.pOut);
-      });
-      this.ready = true; this.status = 'mic (trained model)';
-      return;
-    } catch (e) { this.model = null; /* no model yet: fall back to the sound-level detector */ }
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    this.stream = await getMicStream({ channelCount: 1 });
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     await this.ctx.resume();
     this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 1024;
+    this.analyser.fftSize = this.ctx.sampleRate > 24000 ? 2048 : 1024;   // ~43-64 ms window, ~23 Hz bins
     this.analyser.smoothingTimeConstant = 0;
     this.ctx.createMediaStreamSource(this.stream).connect(this.analyser);
-    this.filter = new BreathFilter(this.ctx.sampleRate, this.analyser.fftSize);
+    this.filter = new ExhaleDetector(this.ctx.sampleRate, this.analyser.fftSize);
     this.spec = new Float32Array(this.analyser.frequencyBinCount);
     this.status = 'measuring room noise - stay quiet 3 s';
     this.calibUntil = performance.now() + 3000;
     this.lastStep = performance.now();
-    this.timer = setInterval(() => this.poll(), 32);          // fallback when the game loop is paused
+    this.timer = setInterval(() => this.poll(), 32);          // keeps running when the game loop is paused
   }
   /** Process the audio in 32 ms blocks. Call from the game loop; safe to call often. */
   poll(now = performance.now()) {
-    if (this.model || !this.analyser) return;
+    if (!this.analyser) return;
     let steps = 0;
     while (now - this.lastStep >= 32 && steps < 8) {
       this.lastStep += 32; steps++;
       this.analyser.getFloatFrequencyData(this.spec);
       const lvl = this.filter.step(this.spec, now >= this.calibUntil);
       if (lvl == null) continue;
-      if (!this.ready) { this.ready = true; this.status = `mic (room ${this.filter.room.toFixed(0)} dB)`; }
+      if (!this.ready) { this.ready = true; this.status = 'listening for out-breaths'; }
       this.level = lvl;
-      this.phase = this.tracker.update(lvl, now / 1000);
+      this.phase = lvl > 0 ? 'out' : 'in';
     }
     if (now - this.lastStep > 1000) this.lastStep = now;      // tab was asleep: do not replay a backlog
   }
-  flip() { if (!this.model) this.tracker.flip(); }
-  /** With the trained model: { phase, since, lastIn, lastOut, period, pIn, pOut, pRest }; else null. */
-  get detail() { return this.model ? this.modelState : null; }
+  flip() {}
+  get detail() { return null; }
   stop() {
-    this.mic16?.stop(); this.mic16 = null; this.model = null;
     clearInterval(this.timer);
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.close().catch(() => {});
+    this.stream = null; this.ctx = null; this.analyser = null; this.ready = false;
     this.status = 'off'; this.level = 0; this.phase = 'rest';
   }
 }

@@ -3,6 +3,8 @@
 // server opens it fullscreen in its own window and the game reports back when the walk ends.
 // Anywhere else (or if Godot is missing) the browser edition runs right here instead.
 
+import { listServerMics, savedServerMic, saveServerMic } from '../../lib/sensors.js';
+
 export const meta = { id: 'greenfold', title: 'ΑΝΑΣΑ · Immersive' };
 
 const CSS = `
@@ -22,6 +24,9 @@ const CSS = `
 .gf .sense { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin: 4px 0 14px; font-size: 14px; }
 .gf .sense label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; opacity: .92; }
 .gf .sense input { accent-color: #ffe0b0; width: 16px; height: 16px; }
+.gf .sense select { font: 400 13.5px system-ui, sans-serif; color: #f6f1e7; background: rgba(10,14,34,.35); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 6px 12px; max-width: 280px; cursor: pointer; }
+.gf .sense select option { color: #1a1f3a; background: #fff; }
+.gf .sense .mic-row { flex-basis: 100%; display: none; justify-content: center; }
 .gf .wait { width: 10px; height: 10px; border-radius: 50%; background: #fff3cf; display: inline-block; margin-right: 8px; animation: gf-pulse 4s ease-in-out infinite; }
 @keyframes gf-pulse { 0%, 100% { transform: scale(.6); opacity: .5 } 40% { transform: scale(1.3); opacity: 1 } }
 .gf iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #0b1024; }
@@ -48,13 +53,26 @@ export function mount(container, { onComplete, onExit } = {}) {
       <div class="sense">
         <label><input type="checkbox" data-mic> Listen to my breathing (microphone)</label>
         <label><input type="checkbox" data-heart> Heart strap (Bluetooth)</label>
+        <div class="mic-row"><select data-mic-source aria-label="Microphone"><option value="">Default microphone</option></select></div>
       </div>` : '<p style="font-size:13.5px;opacity:.7">Microphone and heart strap: open the demo view (bottom left) once the walk starts.</p>'}
       <div class="row">
         ${native ? '<button class="primary" data-go>Open the valley</button><button data-web>Play in the browser</button>'
                  : '<button class="primary" data-web>Begin</button>'}
         <button data-leave>Back</button>
       </div>`);
-    on('[data-go]', () => launch({ mic: !!card.querySelector('[data-mic]')?.checked, heart: !!card.querySelector('[data-heart]')?.checked }));
+    const micBox = card.querySelector('[data-mic]'), micSel = card.querySelector('[data-mic-source]');
+    if (micBox && micSel) {
+      const row = micSel.parentElement;
+      micBox.addEventListener('change', () => { row.style.display = micBox.checked ? 'flex' : 'none'; });
+      micSel.addEventListener('change', () => saveServerMic(micSel.value));
+      listServerMics().then((mics) => {
+        const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        micSel.innerHTML = '<option value="">Default microphone</option>' + mics.map((m) => `<option value="${esc(m.name)}">${esc(m.label)}</option>`).join('');
+        const saved = savedServerMic();
+        micSel.value = mics.some((m) => m.name === saved) ? saved : '';
+      });
+    }
+    on('[data-go]', () => launch({ mic: !!micBox?.checked, heart: !!card.querySelector('[data-heart]')?.checked, micSource: micBox?.checked ? micSel?.value || '' : '' }));
     on('[data-web]', browser);
     on('[data-leave]', () => onExit && onExit());
   }

@@ -1,5 +1,5 @@
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
-import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
+import { MicBreath, BleHeart, support, micPicker } from '../../lib/sensors.js';
 import { HeartCalm, CalmAudio, BreathFollower } from '../../lib/calm.js';
 export const meta = { id: 'drift', title: 'ΑΝΑΣΑ · Minimalist' };
 
@@ -244,6 +244,8 @@ export function mount(container, { onComplete, onExit } = {}) {
 		}
 		.dr-sense { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
 		.dr-sense .dr-chip { font-size: 12.5px; }
+		.dr-mic-pick { max-width: 240px; cursor: pointer; font: inherit; font-size: 12.5px; }
+		.dr-mic-pick option { color: #1a1f3a; }
 		.dr-sense-status { width: 100%; text-align: center; font-size: 11.5px; opacity: .7; min-height: 1.2em; margin-top: 4px; }
 		.dr-heart { position: absolute; left: 18px; top: 22px; width: 9px; height: 9px; border-radius: 50%; background: #ffb4a8; opacity: 0; transition: opacity .6s; box-shadow: 0 0 10px #ffb4a8; }
 		.dr-heart.on { opacity: .75; animation: dr-beat var(--beat, 1s) ease-in-out infinite; }
@@ -436,12 +438,15 @@ export function mount(container, { onComplete, onExit } = {}) {
 	const micInput = doc.createElement('input');
 	micInput.type = 'checkbox';
 	micInput.disabled = !support.mic;
-	micLabel.append(micInput, element('span', '', 'Listen to my breathing'));
+	micLabel.append(micInput, element('span', '', 'Listen to my breathing (breathe out to sink)'));
 	const heartButton = element('button', 'dr-chip', 'Connect heart sensor');
 	heartButton.type = 'button';
 	heartButton.disabled = !support.bluetooth;
 	const senseStatus = element('p', 'dr-sense-status', support.mic || support.bluetooth ? '' : 'Microphone and Bluetooth need a secure page (localhost or https).');
-	senseRow.append(micLabel, heartButton, senseStatus);
+	const micSelect = micPicker({ className: 'dr-chip dr-mic-pick' });
+	micSelect.style.display = 'none';
+	micInput.addEventListener('change', () => { micSelect.style.display = micInput.checked ? '' : 'none'; });
+	senseRow.append(micLabel, micSelect, heartButton, senseStatus);
 	setupInner.append(title, subtitle, moodLabel, moodRow, setupActions, senseRow, quietLine);
 	setup.append(setupInner);
 
@@ -1077,7 +1082,9 @@ export function mount(container, { onComplete, onExit } = {}) {
 
 		const riseSpeed = 1.15 * span / (0.4 * S.P);
 		const fallSpeed = 1.15 * span / (0.6 * S.P);
-		const targetVelocity = holding ? -riseSpeed : fallSpeed;
+		// with the mic on: an out-breath drops the light, otherwise it rises (holding still lifts it too)
+		const lifting = micOn && mic.ready ? holding || mic.phase !== 'out' : holding;
+		const targetVelocity = lifting ? -riseSpeed : fallSpeed;
 		orbV += (targetVelocity - orbV) * (1 - Math.exp(-dt / 0.25));
 		orbY += orbV * dt;
 

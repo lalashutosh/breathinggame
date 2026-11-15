@@ -56,6 +56,8 @@ def load_sessions(folder, margin):
         times, feats = bm.features_for_signal(pcm)
         y = np.full(len(times), -1)
         for seg in meta.get("segments", []):
+            if seg["label"] == "skip":  # hand-marked bad labels: left out of training
+                continue
             k = LABEL_TO_CLASS.get(seg["label"], 0)
             m = (times >= seg["t0"] + margin) & (times < seg["t1"] - margin)
             y[m] = k

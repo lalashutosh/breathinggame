@@ -3,7 +3,7 @@
 // Breath comes from the microphone (BreathFilter port), a held key/button, or a guide pacer.
 // A Bluetooth heart-rate sensor adds live bpm / HRV, and a calming heart earns extra.
 import { clamp, mixHex, pixelContext, makeSprite, flipH, fillEllipse, ringPixels, rng } from '../../lib/pixel.js';
-import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
+import { MicBreath, BleHeart, support, micPicker } from '../../lib/sensors.js';
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
 import { HeartCalm, CalmAudio } from '../../lib/calm.js';
 
@@ -63,13 +63,8 @@ const SETUP_HTML = `
         <label><input type="radio" name="bd-breath" value="keys" checked> Hold a key or button</label>
         <label><input type="radio" name="bd-breath" value="guide"> Follow the pacer</label>
         <div class="bd-sub" data-mic-opts hidden>
-          <label>Breath sounds
-            <select data-scheme>
-              <option value="alternate">alternate in / out (nose in, mouth out)</option>
-              <option value="exhale">only the out-breath is audible</option>
-            </select>
-          </label>
-          <span class="bd-status" data-mic-status>Stay quiet for 3 s after starting so it can hear the room.</span>
+          <label>Microphone <span data-mic-pick></span></label>
+          <span class="bd-status" data-mic-status>Breathe out onto the mic to dive; stay quiet and the diver rises. Stay quiet for 3 s after starting so it can hear the room.</span>
         </div>
       </fieldset>
       <fieldset>
@@ -81,7 +76,7 @@ const SETUP_HTML = `
       </fieldset>
     </div>
     <button class="btn btn-primary" data-start type="button">Start the dive</button>
-    <p class="keys"><kbd>SPACE</kbd> breathe (keys) · <kbd>P</kbd> flip in/out (mic) · <kbd>G</kbd> pacer ring · <kbd>F</kbd> fullscreen</p>
+    <p class="keys"><kbd>SPACE</kbd> breathe (keys) · <kbd>G</kbd> pacer ring · <kbd>F</kbd> fullscreen</p>
   </div>`;
 
 export function mount(container, { onComplete, onExit } = {}) {
@@ -102,7 +97,6 @@ export function mount(container, { onComplete, onExit } = {}) {
       </div>
       <div class="bd-controls">
         <button class="bd-hold" type="button" data-hold>Hold to breathe in</button>
-        <button class="bd-small" type="button" data-flip hidden>Flip in / out</button>
         <button class="bd-small" type="button" data-pacer aria-pressed="true">Pacer ring</button>
         <button class="bd-small" type="button" data-sound aria-pressed="true">Sound on</button>
         <button class="bd-small" type="button" data-fs>Fullscreen</button>
@@ -128,8 +122,8 @@ export function mount(container, { onComplete, onExit } = {}) {
   const els = {
     n: q('[data-n]'), rate: q('[data-rate]'), cap: q('[data-cap]'), flash: q('[data-flash]'), help: q('[data-help]'),
     vitals: q('[data-vitals]'), src: q('[data-src]'), meter: q('[data-meter]'), intro: q('.bd-intro'),
-    hold: q('[data-hold]'), flip: q('[data-flip]'), pacer: q('[data-pacer]'),
-    micOpts: q('[data-mic-opts]'), micStatus: q('[data-mic-status]'), scheme: q('[data-scheme]'),
+    hold: q('[data-hold]'), pacer: q('[data-pacer]'),
+    micOpts: q('[data-mic-opts]'), micStatus: q('[data-mic-status]'),
     hrBtn: q('[data-hr-connect]'), hrStatus: q('[data-hr-status]'), start: q('[data-start]'), fs: q('[data-fs]'),
   };
 
@@ -159,7 +153,7 @@ export function mount(container, { onComplete, onExit } = {}) {
       audio?.calmChime();
     },
   });
-  const mic = new MicBreath({ scheme: els.scheme.value });
+  const mic = new MicBreath();
   const heart = new BleHeart();
   const S = {
     started: false, finished: false, done: false, breathMode: 'keys',
@@ -186,7 +180,7 @@ export function mount(container, { onComplete, onExit } = {}) {
   if (!support.mic) { q('[data-mic-radio]').disabled = true; setStatus(els.micStatus, support.secure ? 'This browser cannot use the microphone.' : 'Microphone needs https or localhost.', 'err'); els.micOpts.hidden = false; }
   if (!support.bluetooth) { els.hrBtn.disabled = true; setStatus(els.hrStatus, support.secure ? 'Web Bluetooth needs Chrome or Edge (desktop or Android).' : 'Bluetooth needs https or localhost.', 'err'); }
   container.querySelectorAll('input[name="bd-breath"]').forEach((r) => r.addEventListener('change', () => { els.micOpts.hidden = r.value !== 'mic' && support.mic; }));
-  els.scheme.addEventListener('change', () => { mic.scheme = els.scheme.value; });
+  q('[data-mic-pick]').replaceWith(micPicker());
   container.querySelectorAll('input[name="bd-mood"]').forEach((r) => r.addEventListener('change', () => { S.M = MOODS[r.value]; S.mood = r.value; S.worldP = S.M.period[0]; }));
   els.fs.addEventListener('click', toggleFs);
   const sndBtn = q('[data-sound]');
@@ -216,7 +210,6 @@ export function mount(container, { onComplete, onExit } = {}) {
     stageEl.focus();
     setCaption(S.M.intro);
     els.hold.hidden = mode !== 'keys';
-    els.flip.hidden = mode !== 'mic';
     els.meter.hidden = mode !== 'mic';
     els.help.innerHTML = mode === 'keys' ? 'hold <b>SPACE</b> · breathe in<br>let go · breathe out' : mode === 'mic' ? 'breathe so the mic can hear you<br><b>P</b> if in / out get swapped' : 'follow the ring<br>in 4 s · out 6 s';
   });
@@ -225,7 +218,6 @@ export function mount(container, { onComplete, onExit } = {}) {
   const setInhale = (v) => { if (!S.started || S.finished || S.breathMode !== 'keys') return; S.inhaling = v; els.hold.classList.toggle('is-down', v); };
   const onKeyDown = (e) => {
     if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) setInhale(true); }
-    else if (e.code === 'KeyP' && S.breathMode === 'mic') mic.flip();
     else if (e.code === 'KeyG') togglePacer();
     else if (e.code === 'KeyF') toggleFs();
   };
@@ -241,7 +233,6 @@ export function mount(container, { onComplete, onExit } = {}) {
   press(els.hold); press(canvas);
   const togglePacer = () => { S.pacer = !S.pacer; els.pacer.setAttribute('aria-pressed', String(S.pacer)); };
   els.pacer.addEventListener('click', togglePacer);
-  els.flip.addEventListener('click', () => mic.flip());
   q('[data-quit]').addEventListener('click', () => onExit && onExit());
 
   // ---- breath counting (port of BreathCounter)
