@@ -91,6 +91,7 @@ export function mount(container, { onComplete, onExit } = {}) {
           <div class="vitals" data-vitals hidden></div>
           <div class="src" data-src></div>
           <div class="flash" data-flash></div>
+          <div class="goal is-dim" data-goal>Breathe slow and steady and the reef wakes up: light, fish, a turtle. The dive ends on its own in about a minute.</div>
           <div class="cap" data-cap></div>
         </div>
         <div class="bd-intro">${SETUP_HTML}</div>
@@ -120,7 +121,7 @@ export function mount(container, { onComplete, onExit } = {}) {
     else rootEl.requestFullscreen?.().catch(() => {});
   };
   const els = {
-    n: q('[data-n]'), rate: q('[data-rate]'), cap: q('[data-cap]'), flash: q('[data-flash]'), help: q('[data-help]'),
+    n: q('[data-n]'), rate: q('[data-rate]'), cap: q('[data-cap]'), goal: q('[data-goal]'), flash: q('[data-flash]'), help: q('[data-help]'),
     vitals: q('[data-vitals]'), src: q('[data-src]'), meter: q('[data-meter]'), intro: q('.bd-intro'),
     hold: q('[data-hold]'), pacer: q('[data-pacer]'),
     micOpts: q('[data-mic-opts]'), micStatus: q('[data-mic-status]'),
@@ -209,6 +210,8 @@ export function mount(container, { onComplete, onExit } = {}) {
     rootEl.requestFullscreen?.().catch(() => {});
     stageEl.focus();
     setCaption(S.M.intro);
+    els.goal.classList.remove('is-dim');
+    setTimeout(() => els.goal.classList.add('is-dim'), 10000);
     els.hold.hidden = mode !== 'keys';
     els.meter.hidden = mode !== 'mic';
     els.help.innerHTML = mode === 'keys' ? 'hold <b>SPACE</b> · breathe in<br>let go · breathe out' : mode === 'mic' ? 'breathe so the mic can hear you<br><b>P</b> if in / out get swapped' : 'follow the ring<br>in 4 s · out 6 s';

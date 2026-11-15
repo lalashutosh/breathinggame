@@ -293,6 +293,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 		}
 		.dr-hint.dr-hint-show { opacity: .72; transform: translateY(0); }
 		.dr-hint span { display: block; }
+		.dr-hint .dr-goal { font-family: system-ui, sans-serif; font-style: normal; font-size: clamp(12.5px, 1.4vw, 14.5px); letter-spacing: .02em; opacity: .8; margin-top: 6px; }
 		.dr-end {
 			background: rgba(6,9,22,.13);
 			opacity: 0;
@@ -978,6 +979,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 		if (!hasPlayedDrift) {
 			hint.append(element('span', '', 'The light rises and settles with the water.'));
 		}
+		hint.append(element('span', 'dr-goal', 'Guide the light through the glowing seeds; each becomes a star. In about a minute it reaches home.'));
 		hasPlayedDrift = true;
 		hint.classList.remove('dr-hint-show');
 		void hint.offsetWidth;

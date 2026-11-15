@@ -29,6 +29,7 @@
   .chip:hover{background:rgba(10,14,34,.55)}
   #hint{position:fixed;left:0;right:0;bottom:8vh;text-align:center;font-family:"Cormorant Garamond",Georgia,serif;font-style:italic;font-size:22px;opacity:0;transition:opacity 1.5s;pointer-events:none;text-shadow:0 1px 12px rgba(0,0,0,.4)}
   #hint.on{opacity:.9}
+  #hint small{display:block;margin-top:6px;font-family:system-ui,sans-serif;font-style:normal;font-size:14px;opacity:.85;padding:0 16px}
   #panel{position:fixed;left:14px;bottom:14px;width:258px;background:rgba(8,12,30,.6);border:1px solid rgba(255,255,255,.2);border-radius:14px;padding:12px;font-size:12px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .4s}
   #panel.hidden{opacity:0;pointer-events:none}
   #panel b{font-weight:500}
@@ -62,7 +63,7 @@
   <button class="chip" id="bDemo">Hide demo view</button>
   <button class="chip" id="bEnd">Finish</button>
 </div>
-<div id="hint">Hold to walk · point to turn · find the stray sheep</div>
+<div id="hint">Hold to walk · point to turn · find the stray sheep<small>Walk close to a sheep and it joins your flock. The walk ends on its own in about a minute.</small></div>
 
 <div id="panel" class="hidden">
   <b>Demo view</b> <span style="opacity:.6">(the player never sees this)</span>
