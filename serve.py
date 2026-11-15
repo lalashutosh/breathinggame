@@ -9,8 +9,18 @@ The page works as plain static files too (the garden then lives in the browser's
 localStorage). With this server running, every visitor sees the same garden:
 
     GET  /api/garden                      -> {"version": 1, "contributions": [...]}
-    POST /api/garden/contributions        <- {"type","kind","slot":{"col","row"},"gameId","visitorId"}
+    POST /api/garden/contributions        <- {"type","kind","slot":{"col","row"},"gameId","visitorId",
+                                              "visitorName","gardenId"}
                                           -> 201 the stored contribution, 409 if the slot is taken
+
+Friends' gardens (community play). Every player can own one personal garden, found by a
+short code. A friend who opens an invite joins a "run": what they earn is planted in the
+host's garden instead of their own.
+
+    GET  /api/garden?g=<code>             -> that garden: {"version", "contributions", "garden": meta}
+    POST /api/gardens                     <- {"visitorId","name"}  -> create or rename my garden (meta)
+    POST /api/gardens/<code>/join         <- {"visitorId","name"}  -> 200 meta (helper registered)
+    POST /api/gardens/<code>/leave        <- {"visitorId"}         -> 200 meta
 """
 import argparse
 import shutil
@@ -32,7 +42,7 @@ WEB = os.path.join(ROOT, "web")
 COLS, ROWS = 9, 5
 KINDS = {"apple", "cherry", "birch", "pine"}
 TYPES = {"tree"}
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _ago(hours):
@@ -52,7 +62,26 @@ def seed_contributions():
     ]
 
 
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_RE = __import__("re").compile(r"^[A-Z0-9]{4,8}$")
+HELPER_TTL = 3 * 3600  # a run lasts a few hours unless the helper leaves first
+
+
+def _clean_name(v, fallback="A friend"):
+    v = " ".join(str(v or "").split())[:24]
+    return v or fallback
+
+
 class GardenData:
+    """The community garden plus one personal garden per player.
+
+    File layout (version 2):
+      {"version": 2, "contributions": [...community...],
+       "gardens": {code: {"code","name","ownerId","created","contributions":[...],
+                          "helpers": {visitorId: {"name","joinedAt","lastSeen","planted"}}}}}
+    A version 1 file (community only) is upgraded in place.
+    """
+
     def __init__(self, path):
         self.path = path
         self.lock = threading.Lock()
@@ -61,7 +90,9 @@ class GardenData:
                 self.data = json.load(f)
         else:
             self.data = {"version": SCHEMA_VERSION, "contributions": seed_contributions()}
-            self._save()
+        self.data.setdefault("gardens", {})
+        self.data["version"] = SCHEMA_VERSION
+        self._save()
 
     def _save(self):
         tmp = self.path + ".tmp"
@@ -69,10 +100,85 @@ class GardenData:
             json.dump(self.data, f, indent=1)
         os.replace(tmp, self.path)
 
-    def snapshot(self):
-        with self.lock:
-            return json.dumps(self.data)
+    # ------------------------------------------------------------- helpers
+    def _garden(self, code):
+        if not code or code == "community":
+            return None
+        return self.data["gardens"].get(str(code).upper())
 
+    def _meta(self, g):
+        now = time.time()
+        helpers = []
+        for vid, h in g.get("helpers", {}).items():
+            if h.get("left") or now - h.get("lastSeen", 0) > HELPER_TTL:
+                continue
+            helpers.append({"name": h["name"], "planted": h.get("planted", 0), "joinedAt": h.get("joinedAt"),
+                            "id": vid[-6:]})
+        helpers.sort(key=lambda h: h.get("joinedAt") or "")
+        return {"code": g["code"], "name": g["name"], "owner": g["ownerId"][-6:], "created": g["created"],
+                "helpers": helpers, "count": len(g["contributions"])}
+
+    def _new_code(self):
+        import secrets
+        while True:
+            code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(6))
+            if code not in self.data["gardens"]:
+                return code
+
+    # ------------------------------------------------------------- reads
+    def snapshot(self, code=None):
+        with self.lock:
+            if not code or code == "community":
+                return 200, {"version": SCHEMA_VERSION, "contributions": self.data["contributions"]}
+            g = self._garden(code)
+            if not g:
+                return 404, {"error": "no garden with that code"}
+            return 200, {"version": SCHEMA_VERSION, "contributions": g["contributions"], "garden": self._meta(g)}
+
+    # ------------------------------------------------------------- personal gardens
+    def ensure_garden(self, body):
+        vid = str(body.get("visitorId") or "")[:64]
+        if not vid:
+            return 400, {"error": "missing visitorId"}
+        name = _clean_name(body.get("name"), "")
+        with self.lock:
+            g = next((g for g in self.data["gardens"].values() if g["ownerId"] == vid), None)
+            if not g:
+                code = self._new_code()
+                g = {"code": code, "name": name or "My garden", "ownerId": vid,
+                     "created": datetime.now(timezone.utc).isoformat(), "contributions": [], "helpers": {}}
+                self.data["gardens"][code] = g
+            elif name:
+                g["name"] = name
+            self._save()
+            return 200, self._meta(g)
+
+    def join(self, code, body, leave=False):
+        vid = str(body.get("visitorId") or "")[:64]
+        if not vid:
+            return 400, {"error": "missing visitorId"}
+        with self.lock:
+            g = self._garden(code)
+            if not g:
+                return 404, {"error": "no garden with that code"}
+            if g["ownerId"] == vid:
+                return 409, {"error": "this is your own garden"}
+            helpers = g.setdefault("helpers", {})
+            if leave:
+                if vid in helpers:
+                    helpers[vid]["left"] = True
+            else:
+                h = helpers.get(vid) or {"planted": 0}
+                fresh = h.get("left") or time.time() - h.get("lastSeen", 0) > HELPER_TTL
+                h.update({"name": _clean_name(body.get("name")), "lastSeen": time.time(), "left": False})
+                if fresh or "joinedAt" not in h:
+                    h["joinedAt"] = datetime.now(timezone.utc).isoformat()
+                    h["planted"] = 0
+                helpers[vid] = h
+            self._save()
+            return 200, self._meta(g)
+
+    # ------------------------------------------------------------- planting
     def plant(self, body):
         kind = body.get("kind")
         slot = body.get("slot") or {}
@@ -81,8 +187,21 @@ class GardenData:
             return 400, {"error": "unknown contribution type or kind"}
         if not (isinstance(col, int) and isinstance(row, int) and 0 <= col < COLS and 0 <= row < ROWS):
             return 400, {"error": "slot out of range"}
+        code = body.get("gardenId")
+        vid = str(body.get("visitorId") or "anon")[:64]
         with self.lock:
-            for c in self.data["contributions"]:
+            if code and code != "community":
+                g = self._garden(code)
+                if not g:
+                    return 404, {"error": "no garden with that code"}
+                h = g.get("helpers", {}).get(vid)
+                is_helper = h and not h.get("left") and time.time() - h.get("lastSeen", 0) <= HELPER_TTL
+                if g["ownerId"] != vid and not is_helper:
+                    return 403, {"error": "join this garden's run to plant here"}
+                target = g["contributions"]
+            else:
+                g, h, target = None, None, self.data["contributions"]
+            for c in target:
                 if c["slot"]["col"] == col and c["slot"]["row"] == row:
                     return 409, {"error": "slot taken"}
             item = {
@@ -91,12 +210,32 @@ class GardenData:
                 "kind": kind,
                 "slot": {"col": col, "row": row},
                 "plantedAt": datetime.now(timezone.utc).isoformat(),
-                "visitorId": str(body.get("visitorId") or "anon")[:64],
+                "visitorId": vid,
+                "visitorName": _clean_name(body.get("visitorName"), "") or None,
                 "gameId": (str(body.get("gameId"))[:64] if body.get("gameId") else None),
             }
-            self.data["contributions"].append(item)
+            target.append(item)
+            if g is not None and g["ownerId"] != vid:
+                h["planted"] = h.get("planted", 0) + 1
+                h["lastSeen"] = time.time()
             self._save()
         return 201, item
+
+
+def list_mics():
+    """Microphones on this machine as PipeWire/PulseAudio sources: [{"name", "label"}].
+    The sensor bridge opens one by name, which works at 16 kHz where raw device indexes may not."""
+    exe = shutil.which("pactl")
+    if not exe:
+        return []
+    try:
+        out = subprocess.run([exe, "-f", "json", "list", "sources"], capture_output=True, text=True, timeout=3).stdout
+        sources = json.loads(out or "[]")
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return []
+    return [{"name": s.get("name", ""), "label": s.get("description") or s.get("name", "")}
+            for s in sources
+            if s.get("name") and not s["name"].endswith(".monitor")]
 
 
 class GreenfoldLauncher:
@@ -119,7 +258,7 @@ class GreenfoldLauncher:
     def available(self):
         return bool(self.godot) and os.path.exists(os.path.join(self.project, "project.godot"))
 
-    def launch(self, mode=None, mic=False, heart=False):
+    def launch(self, mode=None, mic=False, heart=False, mic_source=None):
         if not self.available():
             return 501, {"error": "Godot or the greenfold project was not found on this machine"}
         with self.lock:
@@ -136,6 +275,8 @@ class GreenfoldLauncher:
                 bargs = [self.sensor_python, os.path.join(ROOT, "sensors", "bridge.py"), "--post", f"{self.base_url}api/sensors"]
                 if mic:
                     bargs.append("--mic")
+                    if mic_source:
+                        bargs += ["--source", mic_source]
                 if heart:
                     bargs.append("--hr")
                 self.sensors, self.sensors_t = {}, 0.0
@@ -233,20 +374,16 @@ class Handler(SimpleHTTPRequestHandler):
                                     "sensors": os.path.exists(os.path.join(ROOT, "sensors", "bridge.py"))})
         if route == "/api/sensors":
             return self._json(*self.greenfold.get_sensors())
+        if route == "/api/mics":
+            return self._json(200, {"mics": list_mics()})
         if route == "/api/dataset":
             return self._json(200, {"sessions": dataset_list()})
         if route == "/api/greenfold/result":
             sid = parse_qs(urlparse(self.path).query).get("session", [""])[0]
             return self._json(*self.greenfold.result(sid))
-        if self.path.split("?")[0] == "/api/garden":
-            raw = self.garden.snapshot().encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-            return
+        if route == "/api/garden":
+            code = parse_qs(urlparse(self.path).query).get("g", [""])[0]
+            return self._json(*self.garden.snapshot(code))
         return super().do_GET()
 
     def do_POST(self):
@@ -255,7 +392,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._dataset_post(route[len("/api/dataset/"):])
         if route == "/api/model/train":
             return self._json(*train_model())
-        if route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result", "/api/sensors"):
+        friends = route == "/api/gardens" or (route.startswith("/api/gardens/") and route.rsplit("/", 1)[-1] in ("join", "leave"))
+        if not friends and route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result", "/api/sensors"):
             return self._json(404, {"error": "not found"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -263,7 +401,19 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "bad json"})
         if route == "/api/greenfold/launch":
-            return self._json(*self.greenfold.launch(body.get("mode"), bool(body.get("mic")), bool(body.get("heart"))))
+            src = body.get("micSource")
+            known = {m["name"] for m in list_mics()}
+            return self._json(*self.greenfold.launch(body.get("mode"), bool(body.get("mic")), bool(body.get("heart")),
+                                                     src if isinstance(src, str) and src in known else None))
+        if not isinstance(body, dict):
+            return self._json(400, {"error": "expected a json object"})
+        if route == "/api/gardens":
+            return self._json(*self.garden.ensure_garden(body))
+        if friends:
+            parts = route.split("/")  # ['', 'api', 'gardens', code, action]
+            if len(parts) != 5 or not CODE_RE.match(parts[3].upper()):
+                return self._json(400, {"error": "bad garden code"})
+            return self._json(*self.garden.join(parts[3], body, leave=parts[4] == "leave"))
         if route == "/api/sensors":
             return self._json(*self.greenfold.push_sensors(body))
         if route == "/api/greenfold/result":

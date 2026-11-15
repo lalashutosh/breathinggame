@@ -23,7 +23,7 @@
     </header>
 
     <div class="ov ov-stat" id="garden-stat" aria-live="polite">
-      <div class="stat-title"><span class="ico ico-tree" aria-hidden="true"></span>Our Community Garden</div>
+      <div class="stat-title"><span class="ico ico-tree" aria-hidden="true"></span><span id="stat-title-text">Our Community Garden</span></div>
       <div class="stat-row">
         <span class="stat-num" id="stat-total">0</span>
         <span class="stat-label">trees planted together</span>
@@ -32,6 +32,10 @@
     </div>
 
     <aside class="ov ov-games panel games-panel" id="games" aria-labelledby="games-title">
+      <section class="friends" aria-labelledby="friends-title">
+        <h2 id="friends-title" class="panel-title friends-title"><span class="ico ico-friends" aria-hidden="true"></span>Garden friends</h2>
+        <div id="friends-block" aria-live="polite"></div>
+      </section>
       <header class="panel-head">
         <h2 id="games-title" class="panel-title"><span class="ico ico-pad" aria-hidden="true"></span>Choose a mode</h2>
       </header>
@@ -61,6 +65,10 @@
         <li><b>Earn</b> one sapling for every game you finish.</li>
         <li><b>Plant</b> it anywhere in the garden and watch it grow with everyone else's.</li>
       </ol>
+      <div class="together">
+        <h3>Grow a garden with a friend</h3>
+        <p>Everyone gets a garden of their own. <b>Invite a friend</b> and, for that run, every sapling they earn is planted in your garden; join theirs and yours go to them. You see who planted each tree and who is playing with you right now. Nobody keeps score: it is just a place to show up for each other.</p>
+      </div>
     </section>
 
     <footer class="about" id="about">

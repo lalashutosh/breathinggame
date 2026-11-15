@@ -1,0 +1,5 @@
+# Upload only what the site needs; never .env, datasets, Godot or Python tooling.
+/*
+!/web
+!/api
+!/vercel.json

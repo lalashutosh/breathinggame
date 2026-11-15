@@ -192,6 +192,48 @@ b, strong { font-weight: 700; }
 .ov-games.panel { padding: 14px 14px 12px; }
 .ov-games .panel-title { font-size: 21px; }
 
+/* ---------- garden friends ---------- */
+.friends { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 3px dashed #c9c4b0; }
+.ov-games .friends-title { font-size: 19px; margin-bottom: 8px; }
+.ico-friends {
+  background:
+    linear-gradient(#5f8f5a,#5f8f5a) 2px 3px/6px 6px no-repeat,
+    linear-gradient(#5f8f5a,#5f8f5a) 0 11px/10px 8px no-repeat,
+    linear-gradient(#c98a5a,#c98a5a) 13px 3px/6px 6px no-repeat,
+    linear-gradient(#c98a5a,#c98a5a) 11px 11px/10px 8px no-repeat,
+    linear-gradient(#e8a1b2,#e8a1b2) 9px 15px/4px 3px no-repeat;
+}
+.garden-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.garden-tab {
+  font: 600 14px/1.2 var(--font-pixel); padding: 5px 10px; cursor: pointer;
+  background: var(--paper); color: var(--ink); border: 2px solid var(--line); box-shadow: 0 2px 0 var(--line);
+}
+.garden-tab:hover { background: #fff; }
+.garden-tab[aria-selected="true"] { background: var(--leaf); }
+.garden-tab.is-run::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; background: var(--blush); border: 1px solid var(--line); vertical-align: 1px; }
+.garden-tab:focus-visible { outline: 3px solid var(--leaf-deep); outline-offset: 2px; }
+.friends-note { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.4; }
+.friends-note b { color: var(--ink); }
+.pulse { display: inline-block; width: 8px; height: 8px; margin-right: 7px; background: var(--leaf); border: 1px solid var(--line); vertical-align: 0; animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+.friends-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn-sm { padding: 6px 11px; font-size: 13.5px; }
+.friends-modal { padding: 20px 22px 22px; display: grid; gap: 14px; max-width: 560px; }
+.friends-modal p { margin: 0; }
+.friends-modal .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.field { display: grid; gap: 6px; font-weight: 700; font-size: 14px; }
+.field input, .invite-link {
+  font: 600 16px var(--font-body); padding: 9px 11px; border: 2px solid var(--line); background: var(--paper); color: var(--ink); min-width: 0;
+}
+.field input:focus, .invite-link:focus { outline: 3px solid var(--leaf-deep); outline-offset: 1px; }
+.invite-row { display: flex; gap: 8px; }
+.invite-link { flex: 1; font-size: 14px; }
+.invite-code b { font-family: var(--font-pixel); font-size: 20px; letter-spacing: 2px; }
+.together { margin-top: 24px; background: var(--paper); border: 3px solid var(--line); box-shadow: var(--shadow); padding: 14px 18px; }
+.together h3 { margin: 0 0 4px; font-family: var(--font-pixel); font-size: 22px; font-weight: 600; }
+.together p { margin: 0; color: var(--ink-soft); max-width: 75ch; }
+
 /* ---------- how it works ---------- */
 .how { margin-top: 56px; }
 .section-title { font-family: var(--font-pixel); font-weight: 700; font-size: clamp(26px, 3vw, 36px); margin: 0 0 4px; }
