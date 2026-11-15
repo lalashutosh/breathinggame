@@ -1,4 +1,6 @@
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
+import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
+import { HeartCalm, CalmAudio, BreathFollower } from '../../lib/calm.js';
 export const meta = { id: 'drift', title: 'ΑΝΑΣΑ · Minimalist' };
 
 let hasPlayedDrift = false;
@@ -240,6 +242,12 @@ export function mount(container, { onComplete, onExit } = {}) {
 			accent-color: #f6f1e7;
 			cursor: pointer;
 		}
+		.dr-sense { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+		.dr-sense .dr-chip { font-size: 12.5px; }
+		.dr-sense-status { width: 100%; text-align: center; font-size: 11.5px; opacity: .7; min-height: 1.2em; margin-top: 4px; }
+		.dr-heart { position: absolute; left: 18px; top: 22px; width: 9px; height: 9px; border-radius: 50%; background: #ffb4a8; opacity: 0; transition: opacity .6s; box-shadow: 0 0 10px #ffb4a8; }
+		.dr-heart.on { opacity: .75; animation: dr-beat var(--beat, 1s) ease-in-out infinite; }
+		@keyframes dr-beat { 0%, 100% { transform: scale(.8); } 15% { transform: scale(1.25); } }
 		.dr-quiet {
 			margin: 23px 0 0;
 			font-size: 11px;
@@ -422,7 +430,19 @@ export function mount(container, { onComplete, onExit } = {}) {
 	easyLabel.append(easyInput, element('span', '', 'Let the light find its own way'));
 	setupActions.append(beginButton, easyLabel);
 	const quietLine = element('p', 'dr-quiet', 'Hold to rise · let go to settle · follow the light');
-	setupInner.append(title, subtitle, moodLabel, moodRow, setupActions, quietLine);
+	// optional sensing: breath through the microphone, heart through a Bluetooth strap
+	const senseRow = element('div', 'dr-sense');
+	const micLabel = element('label', 'dr-chip dr-easy');
+	const micInput = doc.createElement('input');
+	micInput.type = 'checkbox';
+	micInput.disabled = !support.mic;
+	micLabel.append(micInput, element('span', '', 'Listen to my breathing'));
+	const heartButton = element('button', 'dr-chip', 'Connect heart sensor');
+	heartButton.type = 'button';
+	heartButton.disabled = !support.bluetooth;
+	const senseStatus = element('p', 'dr-sense-status', support.mic || support.bluetooth ? '' : 'Microphone and Bluetooth need a secure page (localhost or https).');
+	senseRow.append(micLabel, heartButton, senseStatus);
+	setupInner.append(title, subtitle, moodLabel, moodRow, setupActions, senseRow, quietLine);
 	setup.append(setupInner);
 
 	const playUI = element('div', 'dr-play');
@@ -435,7 +455,8 @@ export function mount(container, { onComplete, onExit } = {}) {
 	soundButton.setAttribute('aria-pressed', 'true');
 	topChips.append(soundButton, fullscreenButton, finishButton);
 	const hint = element('div', 'dr-hint');
-	playUI.append(topChips, hint);
+	const heartDot = element('div', 'dr-heart');
+	playUI.append(topChips, hint, heartDot);
 
 	const endOverlay = element('section', 'dr-end');
 	endOverlay.setAttribute('aria-hidden', 'true');
@@ -862,11 +883,52 @@ export function mount(container, { onComplete, onExit } = {}) {
 		audio.waterGain.gain.setTargetAtTime(0.015, now, 0.5);
 	}
 
+	const mic = new MicBreath();
+	const heart = new BleHeart();
+	const follower = new BreathFollower();
+	let cues = null;
+	let micOn = false;
+	let wasRising = false;
+	let calmFx = 0;
+	let calmBursts = [];
+	const calm = new HeartCalm({
+		onCalm: () => {
+			// reward only: a warm bloom from the light, a shower of new stars, a soft chime
+			calmFx = 1;
+			const ox = orbX();
+			for (let i = 0; i < 26; i += 1) {
+				calmBursts.push({ x: ox, y: orbY, vx: (Math.random() - 0.5) * W * 0.12, vy: -H * (0.05 + Math.random() * 0.12), life: 2.5 + Math.random() * 2 });
+			}
+			for (let i = 0; i < 6 && skyLights.length < 60; i += 1) {
+				skyLights.push({ nx: Math.random(), ny: 0.1 + Math.random() * 0.6, size: 1 + Math.random() * 1.5, phase: Math.random() * TAU });
+			}
+			cues?.calmChime();
+			if (S.state === 'play') {
+				hint.replaceChildren(element('span', '', 'Your heart is settling.'));
+				hint.classList.remove('dr-hint-show');
+				void hint.offsetWidth;
+				hint.classList.add('dr-hint-show');
+				win.setTimeout(() => hint.classList.remove('dr-hint-show'), 4500);
+			}
+		},
+	});
+	heart.onChange = () => {
+		senseStatus.textContent = heart.connected ? `heart: ${heart.status}` : heart.status;
+		if (heart.connected) heartButton.textContent = 'Heart connected';
+	};
+	listen(heartButton, 'click', async () => {
+		heartButton.disabled = true;
+		try { await heart.connect(); }
+		catch (e) { senseStatus.textContent = e.name === 'NotFoundError' ? 'No sensor chosen.' : String(e.message || e); }
+		finally { heartButton.disabled = heart.connected || !support.bluetooth; }
+	});
+
 	function toggleSound() {
 		soundOn = !soundOn;
 		soundButton.textContent = soundOn ? 'Sound on' : 'Sound off';
 		soundButton.setAttribute('aria-pressed', String(soundOn));
 		applyMaster(true);
+		cues?.setEnabled(soundOn);
 	}
 
 	function initialiseSeeds() {
@@ -922,6 +984,13 @@ export function mount(container, { onComplete, onExit } = {}) {
 		audio = createAudio();
 		audioMixClock = 1;
 		applyMaster(true);
+		cues = new CalmAudio({ root: 130.81 });
+		cues.resume();
+		cues.setEnabled(soundOn);
+		calm.reset();
+		if (micInput.checked) {
+			mic.start().then(() => { micOn = true; }).catch(() => { micOn = false; });
+		}
 	}
 
 	function startArrival() {
@@ -949,7 +1018,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 		rhythmValue.textContent = `${a} → ${b} / min`;
 		flowValue.textContent = `${flowPct}%`;
 		lightsValue.textContent = String(S.lights);
-		arriveText.textContent = mood.arrive;
+		arriveText.textContent = mood.arrive + (calm.events && calm.baseline ? ` Your heart settled ${Math.max(2, Math.round(calm.baseline - (calm.average() ?? calm.baseline)))} bpm.` : '');
 		stepText.textContent = mood.step;
 		result = {
 			gameId: 'drift',
@@ -957,6 +1026,8 @@ export function mount(container, { onComplete, onExit } = {}) {
 			flowPct,
 			lights: S.lights,
 			seconds,
+			breathSource: micOn ? 'mic' : 'hands',
+			heart: calm.startBpm ? { start: calm.startBpm, end: calm.lastBpm, calmMoments: calm.events, sensor: heart.name } : null,
 		};
 
 		endOverlay.classList.add('dr-show');
@@ -978,9 +1049,12 @@ export function mount(container, { onComplete, onExit } = {}) {
 	function updatePeriod(dt) {
 		let target;
 		if (playTime < 15) {
-			target = totalPresses >= 3 && measuredPeriod
-				? measuredPeriod
-				: mood.period[0];
+			const breathP = micOn ? follower.period() : null;
+			target = breathP
+				? Math.max(2.5, Math.min(12, breathP))
+				: totalPresses >= 3 && measuredPeriod
+					? measuredPeriod
+					: mood.period[0];
 		} else {
 			target = lerp(
 				mood.period[0],
@@ -1134,6 +1208,9 @@ export function mount(container, { onComplete, onExit } = {}) {
 
 	function update(dt) {
 		sceneTime += dt;
+		calmFx = Math.max(0, calmFx - dt / 6);
+		for (const b of calmBursts) { b.x += b.vx * dt; b.y += b.vy * dt; b.vy *= 0.985; b.life -= dt; }
+		calmBursts = calmBursts.filter((b) => b.life > 0);
 
 		if (S.state === 'setup') {
 			S.P = mood.period[0];
@@ -1146,9 +1223,28 @@ export function mount(container, { onComplete, onExit } = {}) {
 			advanceWorld(dt, true);
 			updateOrb(dt);
 
-			const inst = clamp(
+			let inst = clamp(
 				1 - Math.abs(orbY - ribbonYAt(orbX())) / (bandWidth() * 1.2),
 			);
+			// breath enriches, never steers: breathing with the world adds to the hands' sync
+			const rising = (((S.worldPhase % 1) + 1) % 1) < 0.4;
+			if (micOn) {
+				mic.poll(performance.now());
+				follower.update(mic.phase, dt, sceneTime, S.P);
+				const p = follower.period();
+				if (p) { if (!firstMeasuredPeriod) firstMeasuredPeriod = p; latestMeasuredPeriod = p; }
+				const breathInst = mic.phase === 'rest' ? 0.3 : (mic.phase === 'in') === rising ? 1 : 0;
+				inst = Math.max(inst, 0.5 * inst + 0.5 * breathInst);
+			}
+			if (cues && rising !== wasRising) {
+				if (rising) cues.inhale(0.4 * S.P);
+				else cues.exhale(0.6 * S.P);
+			}
+			wasRising = rising;
+			const bpm = heart.bpm;
+			if (bpm) calm.push(bpm, performance.now() / 1000); // heart runs on real time
+			heartDot.classList.toggle('on', !!bpm);
+			if (bpm) heartDot.style.setProperty('--beat', `${(60 / bpm).toFixed(2)}s`);
 			S.sync += (inst - S.sync) * Math.min(1, dt * 0.45);
 			if (S.sync > 0.55) flowTime += dt;
 
@@ -1591,6 +1687,19 @@ export function mount(container, { onComplete, onExit } = {}) {
 		}
 	}
 
+	function drawCalmReward() {
+		if (calmFx <= 0 && !calmBursts.length) return;
+		const warm = [255, 214, 150];
+		if (calmFx > 0) {
+			radialGlow(orbX(), orbY, H * (0.12 + 0.35 * (1 - calmFx)), warm, 0.22 * calmFx, 0.35 * calmFx);
+			radialGlow(W * 0.5, horizonY(), W * 0.6, warm, 0.1 * calmFx, 0.14 * calmFx);
+		}
+		for (const b of calmBursts) {
+			const a = Math.min(1, b.life / 1.5);
+			radialGlow(b.x, b.y, 7, warm, 0.18 * a, 0.6 * a);
+		}
+	}
+
 	function drawGatheredLights() {
 		const rgb = colour('orb');
 		for (const light of skyLights) {
@@ -1699,6 +1808,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 		drawRain();
 		drawFog();
 		drawGatheredLights();
+		drawCalmReward();
 		drawOrb();
 		drawVignette();
 	}
@@ -1812,7 +1922,7 @@ export function mount(container, { onComplete, onExit } = {}) {
 	listen(win, 'resize', resize);
 
 	if (win.location && win.location.search.includes('debug')) {
-		win.__dr = { S };
+		win.__dr = { S, mic, heart, calm };
 	}
 
 	resize();
@@ -1824,6 +1934,9 @@ export function mount(container, { onComplete, onExit } = {}) {
 			if (destroyed) return;
 			destroyed = true;
 			win.cancelAnimationFrame(raf);
+			mic.stop();
+			heart.disconnect();
+			cues?.close();
 			for (const remove of listeners.splice(0)) remove();
 			if (resizeObserver) {
 				resizeObserver.disconnect();

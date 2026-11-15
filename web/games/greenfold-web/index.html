@@ -72,7 +72,10 @@
   <div class="src">
     <button id="sSim" class="on">Simulated breath</button>
     <button id="sMan">Hold Space</button>
+    <button id="sMic">Microphone</button>
   </div>
+  <div class="row"><span>Heart</span><b id="vHr">–</b></div>
+  <div class="src"><button id="sHeart">Connect heart sensor</button></div>
   <div class="note" id="vNote">Breath is simulated here. A sensor replaces it later.</div>
 </div>
 
@@ -102,6 +105,14 @@
   <p class="fine" id="eFine"></p>
 </div>
 
+<script type="module">
+// Sensing + calm cues shared with the other ΑΝΑΣΑ modes. Read lazily by the game script below.
+import { MicBreath, BleHeart, support } from '../../js/lib/sensors.js';
+import { HeartCalm, CalmAudio, BreathFollower } from '../../js/lib/calm.js';
+const S = window.__sense = { support, mic: new MicBreath(), heart: new BleHeart(), follower: new BreathFollower(), cues: null, calmFx: 0 };
+S.calm = new HeartCalm({ onCalm: (e) => { S.calmFx = 1; S.cues && S.cues.calmChime(); S.onCalm && S.onCalm(e); } });
+S.startCues = (on) => { if (!S.cues) S.cues = new CalmAudio({ root: 130.81 }); S.cues.resume(); S.cues.setEnabled(on !== false); };
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
@@ -146,7 +157,7 @@ var SESSION=60; // demo length: about a minute
 var mode='quick',M=MODES.quick,state='menu',p=.3,e=ease(.3),T=0,scroll=0;
 var worldP=6,worldPhase=0,worldVal=0,prevWorldVal=0;
 var userP=6,userPhase=.3,breathVal=0,sync=0,syncTime=0,playTime=0,startBpm=0;
-var source='sim',held=false,pressTimes=[];
+var source='sim',held=false,pressTimes=[],wasRising=false;
 var px=null,boatX=0,lights=0,motes=[],nextMote=600,rising=[],kept=[],trail=[];
 var histW=[],histB=[],histT=0;
 function V(k){var a=M[k];return a[0]+(a[1]-a[0])*e;}
@@ -330,6 +341,7 @@ function startGame(m){
   document.getElementById('hud').classList.remove('hidden');if(demoOn)document.getElementById('panel').classList.remove('hidden');
   var h=document.getElementById('hint');h.classList.add('on');setTimeout(function(){h.classList.remove('on');},9000);
   initAudio();
+  var SN=window.__sense;if(SN){SN.startCues(soundOn);SN.calm.reset();}
 }
 function endGame(){
   if(state!=='play')return;state='end';walking=false;
@@ -339,10 +351,11 @@ function endGame(){
   document.getElementById('eSync').textContent=Math.round(100*syncTime/Math.max(playTime,1))+'%';
   document.getElementById('eLights').textContent=flock+' / '+NSHEEP;
   document.getElementById('eStep').textContent=M.step;
-  document.getElementById('eFine').textContent=source==='sim'?'Prototype: breathing figures come from a simulated breather, not a sensor.':'Prototype: breathing estimated from your key presses.';
+  if(source==='mic'){known=true;}
+  document.getElementById('eFine').textContent=source==='mic'?'Breathing measured through the microphone.':source==='sim'?'Prototype: breathing figures come from a simulated breather, not a sensor.':'Prototype: breathing estimated from your key presses.';
   setTimeout(function(){document.getElementById('end').classList.remove('hidden');},600);
   // embedded in the MindPlay hub: tell the page the walk is over so it can hand out a sapling
-  if(window.parent!==window){try{window.parent.postMessage({type:'greenfold:end',result:{gameId:'greenfold',edition:'browser',mood:mode,sheep:flock,sheepTotal:NSHEEP,flowPct:Math.round(100*syncTime/Math.max(playTime,1)),startBpm:Math.round(startBpm),endBpm:Math.round(60/userP),seconds:Math.round(playTime)}},'*');}catch(err){}}
+  if(window.parent!==window){try{window.parent.postMessage({type:'greenfold:end',result:{gameId:'greenfold',edition:'browser',mood:mode,sheep:flock,sheepTotal:NSHEEP,flowPct:Math.round(100*syncTime/Math.max(playTime,1)),startBpm:Math.round(startBpm),endBpm:Math.round(60/userP),seconds:Math.round(playTime),breathSource:source,heart:(window.__sense&&window.__sense.calm.startBpm)?{start:window.__sense.calm.startBpm,end:window.__sense.calm.lastBpm,calmMoments:window.__sense.calm.events}:null}},'*');}catch(err){}}
 }
 function step(dt){
   T+=dt;
@@ -350,9 +363,19 @@ function step(dt){
   var target=state==='play'?(playTime<10?userP:M.period[0]+(M.period[1]-M.period[0])*ease(Math.min(1,p*1.25))):7;
   worldP+=(target-worldP)*Math.min(1,dt*.5);
   worldPhase=(worldPhase+dt/worldP)%1;prevWorldVal=worldVal;worldVal=shape(worldPhase);th=theta();chopNow=V('chop');
+  var SN=window.__sense,rising=worldPhase<.4;
+  if(SN){
+    if(state==='play'&&SN.cues&&rising!==wasRising){if(rising)SN.cues.inhale(.4*worldP);else SN.cues.exhale(.6*worldP);}
+    var hb=SN.heart.bpm;if(hb&&state==='play')SN.calm.push(hb,performance.now()/1000);
+    SN.calmFx=Math.max(0,SN.calmFx-dt/6);
+  }
+  wasRising=rising;
   if(source==='sim'||state!=='play'){
     userP+=(worldP-userP)*dt*.16+(Math.random()-.5)*dt*.25;userP=clamp(userP,2.5,13);
     var d=worldPhase-userPhase;d-=Math.round(d);userPhase=(userPhase+dt/userP+d*dt*(.05+.3*Math.min(1,playTime/40))+1)%1;breathVal=shape(userPhase);
+  }else if(source==='mic'&&SN){
+    SN.mic.poll(performance.now());breathVal=SN.follower.update(SN.mic.phase,dt,T,worldP);
+    var fp=SN.follower.period();if(fp)userP=clamp(fp,2,15);
   }else{
     breathVal=clamp(breathVal+(held?dt/(.4*worldP):-dt/(.6*worldP)),0,1);
     if(pressTimes.length>2){var n=pressTimes.length;userP=clamp((pressTimes[n-1]-pressTimes[Math.max(0,n-4)])/Math.min(3,n-1),2,15);}
@@ -389,7 +412,7 @@ function render3D(dt){
   var detail=V('detail'),life=V('life'),sunY=V('sunY'),mist=V('mist'),rainA=V('rain'),sunVis=clamp((sunY+.06)/.09,0,1),lightK=.55+.5*sunVis;
   var az=.5,el=sunY*.95+.04;sunDir.set(Math.sin(az)*Math.cos(el),Math.sin(el),-Math.cos(az)*Math.cos(el)).normalize();
   setC(skyU.uTop.value,sT);setC(skyU.uMid.value,sM);setC(skyU.uBot.value,sB);setC(skyU.uSunCol.value,sunC);setC(skyU.uMistCol.value,mix(sB,WHITE,.55));
-  skyU.uSunDir.value.copy(sunDir);skyU.uDisc.value=Math.cos(M.sunR*.75);skyU.uSync.value=sync;skyU.uMist.value=mist;starM.opacity=V('stars');
+  skyU.uSunDir.value.copy(sunDir);skyU.uDisc.value=Math.cos(M.sunR*.75);skyU.uSync.value=Math.min(1.5,sync+cfx*.8);skyU.uMist.value=mist;starM.opacity=V('stars');
   var cc=mix(sB,WHITE,.45),ca=V('clouds')*.24;for(k=0;k<cloudM.length;k++){setC(cloudM[k].color,cc);cloudM[k].opacity=ca;}cloudG.rotation.y=T*.003;
   setC(ringA.material.color,mix(sB,rc,.3));setC(ringB.material.color,mix(sB,rc,.55));ringA.scale.y=.3+.7*detail;ringB.scale.y=.3+.7*detail;
   var fogC=mix(sB,WHITE,mist*.3),fogD=.0026+mist*.02;setC(scene.fog.color,fogC);scene.fog.density=fogD;
@@ -398,12 +421,13 @@ function render3D(dt){
   setC(cloakM.color,mix([176,74,58],rc,.25));setC(darkM.color,mix([52,44,48],rc,.3));setC(woolM.color,mix([246,240,228],sB,.22));
   windU.uTheta.value=th;windU.uTime.value=T;windU.uGust.value=.3+chopNow*.9;windU.uPlayer.value.set(PL.x,PL.z);
   grU.uFogD.value=fogD;setC(grU.uFogC.value,fogC);var gTip=mix(mix(gr,WHITE,.06),BLACK,.42*(1-sunVis));setC(grU.uG2.value,gTip);setC(grU.uG1.value,mix(gTip,BLACK,.42));setC(grU.uSheen.value,mix(sunC,gr,.4));
-  flU.uSync.value=state==='menu'?.25:sync;flU.uPx.value=H*.22;flU.uLight.value=.6+.4*sunVis;
+  var cfx=window.__sense?window.__sense.calmFx:0;
+  flU.uSync.value=state==='menu'?.25:Math.min(1,sync+cfx*.6);flU.uPx.value=H*.22;flU.uLight.value=.6+.4*sunVis;
   lakeU.uTime.value=T;setC(lakeU.uBot.value,sB);setC(lakeU.uMid.value,sM);setC(lakeU.uDeep.value,wB);setC(lakeU.uSunCol.value,sunC);lakeU.uSunDir.value.copy(sunDir);lakeU.uSunVis.value=sunVis;lakeU.uWind.value=chopNow*worldVal;setC(lakeU.uFogC.value,fogC);lakeU.uFogD.value=fogD;
   /* hero + camera */
   var hy=ht(PL.x,PL.z),bob=Math.abs(Math.sin(PL.t*1.7))*.07*Math.min(1,PL.v/2);
   hero.position.set(PL.x,hy+bob,PL.z);hero.rotation.set(0,PL.yaw,Math.sin(PL.t*1.7)*.04*Math.min(1,PL.v/2));
-  var gs=2.6+sync*5+worldVal*.6;lampGlow.scale.set(gs,gs,1);lampL.intensity=.4+sync*1.1;
+  var gs=2.6+sync*5+worldVal*.6+cfx*7;lampGlow.scale.set(gs,gs,1);lampL.intensity=.4+sync*1.1+cfx*1.6;
   if(state!=='play')camYaw+=dt*.06;else{var dy=PL.yaw-camYaw;dy-=Math.round(dy/6.283)*6.283;camYaw+=dy*Math.min(1,dt*2.2);}
   var cx2=PL.x-Math.sin(camYaw)*9.5,cz2=PL.z-Math.cos(camYaw)*9.5,cy2=Math.max(hy+4.3,ht(cx2,cz2)+1.8);
   camP.lerp(v3.set(cx2,cy2,cz2),Math.min(1,dt*6));camera.position.copy(camP);camera.lookAt(PL.x+Math.sin(camYaw)*7,hy+2.3,PL.z+Math.cos(camYaw)*7);
@@ -420,6 +444,7 @@ var wv=document.getElementById('wave'),wgx=wv.getContext('2d'),demoOn=true,panel
 function drawPanel(){var w=wv.width,h=wv.height;wgx.clearRect(0,0,w,h);
   [[histW,'#ffd9a0'],[histB,'#8fd3ff']].forEach(function(pr){var a=pr[0];wgx.strokeStyle=pr[1];wgx.lineWidth=3;wgx.beginPath();for(var i=0;i<a.length;i++){var x=w-(a.length-1-i)*(w/200),y=h-10-a[i]*(h-20);if(i===0)wgx.moveTo(x,y);else wgx.lineTo(x,y);}wgx.stroke();});
   document.getElementById('vStage').textContent=playTime<10?'Mirror':sync>.62?'Resonance':'Lead';document.getElementById('vSync').textContent=Math.round(sync*100)+'%';
+  var hS=window.__sense;if(hS){var hb2=hS.heart.bpm,dl=hS.calm.delta();document.getElementById('vHr').textContent=hb2?hb2+' bpm'+(dl!=null?' ('+(dl>=0?'+':'')+dl.toFixed(0)+')':''):(hS.heart.connected?'…':'–');}
   document.getElementById('vBpm').textContent=(source==='sim'||pressTimes.length>2)?(60/userP).toFixed(1):'–';}
 /* ---------- input ---------- */
 cv.addEventListener('pointermove',function(ev){px=ev.clientX;});
@@ -431,10 +456,18 @@ function press(dn){if(dn&&!held&&state==='play'&&source==='man'){pressTimes.push
 Array.prototype.forEach.call(document.querySelectorAll('[data-mode]'),function(b){b.addEventListener('click',function(){startGame(b.getAttribute('data-mode'));});});
 document.getElementById('bAgain').addEventListener('click',function(){document.getElementById('end').classList.add('hidden');state='menu';mode='quick';M=MODES.quick;p=.3;e=ease(.3);document.getElementById('menu').classList.remove('hidden');});
 document.getElementById('bEnd').addEventListener('click',endGame);
-document.getElementById('bSound').addEventListener('click',function(){soundOn=!soundOn;this.textContent=soundOn?'Sound on':'Sound off';initAudio();if(AC)A.master.gain.setTargetAtTime(soundOn?.85:0,AC.currentTime,.2);});
+document.getElementById('bSound').addEventListener('click',function(){soundOn=!soundOn;this.textContent=soundOn?'Sound on':'Sound off';initAudio();if(window.__sense&&window.__sense.cues)window.__sense.cues.setEnabled(soundOn);if(AC)A.master.gain.setTargetAtTime(soundOn?.85:0,AC.currentTime,.2);});
 document.getElementById('bDemo').addEventListener('click',function(){demoOn=!demoOn;this.textContent=demoOn?'Hide demo view':'Show demo view';document.getElementById('panel').classList.toggle('hidden',!demoOn);});
-function setSource(s){source=s;document.getElementById('sSim').classList.toggle('on',s==='sim');document.getElementById('sMan').classList.toggle('on',s==='man');
+function setSource(s){
+  if(s==='mic'){var SN=window.__sense;if(!SN||!SN.support.mic){document.getElementById('vNote').textContent='The microphone needs a secure page (localhost or https).';return;}
+    document.getElementById('vNote').textContent='Asking for the microphone…';
+    SN.mic.start().then(function(){source='mic';document.getElementById('vNote').textContent='Listening. Stay quiet 3 s first, then breathe near the mic.';}).catch(function(e){document.getElementById('vNote').textContent='Microphone: '+(e.message||e);setSource('sim');});
+    ['sSim','sMan','sMic'].forEach(function(id){document.getElementById(id).classList.toggle('on',id==='sMic');});pressTimes=[];return;}
+  source=s;['sSim','sMan','sMic'].forEach(function(id){document.getElementById(id).classList.toggle('on',id===(s==='sim'?'sSim':'sMan'));});
   document.getElementById('vNote').textContent=s==='sim'?'Breath is simulated here. A sensor replaces it later.':'Hold Space to breathe in, release to breathe out.';pressTimes=[];}
+document.getElementById('sMic').addEventListener('click',function(){setSource('mic');});
+document.getElementById('sHeart').addEventListener('click',function(){var SN=window.__sense,b=this;if(!SN||!SN.support.bluetooth){document.getElementById('vNote').textContent='Bluetooth needs Chrome or Edge on a secure page.';return;}
+  b.textContent='Choosing…';SN.heart.connect().then(function(){b.textContent='Heart: '+SN.heart.name;}).catch(function(e){b.textContent='Connect heart sensor';document.getElementById('vNote').textContent=e.name==='NotFoundError'?'No sensor chosen.':(e.message||String(e));});});
 document.getElementById('sSim').addEventListener('click',function(){setSource('sim');});document.getElementById('sMan').addEventListener('click',function(){setSource('man');});
 /* ---------- loop ---------- */
 resetSheep();var last=0;

@@ -5,6 +5,7 @@
 import { clamp, mixHex, pixelContext, makeSprite, flipH, fillEllipse, ringPixels, rng } from '../../lib/pixel.js';
 import { MicBreath, BleHeart, support } from '../../lib/sensors.js';
 import { MOODS, MOOD_ORDER, wave } from './moods.js';
+import { HeartCalm, CalmAudio } from '../../lib/calm.js';
 
 export const meta = { id: 'breath-dive', title: 'ΑΝΑΣΑ · Retro' };
 
@@ -103,6 +104,7 @@ export function mount(container, { onComplete, onExit } = {}) {
         <button class="bd-hold" type="button" data-hold>Hold to breathe in</button>
         <button class="bd-small" type="button" data-flip hidden>Flip in / out</button>
         <button class="bd-small" type="button" data-pacer aria-pressed="true">Pacer ring</button>
+        <button class="bd-small" type="button" data-sound aria-pressed="true">Sound on</button>
         <button class="bd-small" type="button" data-fs>Fullscreen</button>
         <button class="bd-small" type="button" data-quit>Leave the dive</button>
       </div>
@@ -145,13 +147,25 @@ export function mount(container, { onComplete, onExit } = {}) {
   const boulders = [80, 210, 330, 470, 560].map((x, i) => ({ x, r: 7 + (i * 3) % 7 }));
 
   // ---- state
+  let audio = null;
+  const calm = new HeartCalm({
+    onCalm: ({ drop }) => {
+      // reward only: warm light, a ripple from the diver, sparkles, a chime, and a little more life
+      S.calmFx = 1;
+      S.calmRings.push({ r: 4, a: 1 }, { r: -10, a: 1 });
+      for (let i = 0; i < 40; i++) S.sparkles.push({ x: S.diver.x + 16 + (Math.random() - 0.5) * 60, y: S.diver.y + (Math.random() - 0.5) * 40, life: 1.2 + Math.random() * 1.5 });
+      S.beauty = Math.min(MAX_BEAUTY, S.beauty + 0.6);
+      flash(drop >= 4 ? 'your heart is settling deeper' : 'your heart is settling');
+      audio?.calmChime();
+    },
+  });
   const mic = new MicBreath({ scheme: els.scheme.value });
   const heart = new BleHeart();
   const S = {
     started: false, finished: false, done: false, breathMode: 'keys',
     mood: 'dive', M: MOODS.dive, p: 0, e: 0, playT: 0,
     worldPhase: 0, worldP: MOODS.dive.period[0], worldVal: 0, rising: true, firstRate: null, stageName: 'Mirror',
-    rain: [], glows: [],
+    rain: [], glows: [], calmFx: 0, calmRings: [],
     inhaling: false, pacer: true,
     lung: 0.3, phase: 'rest', level: 0, t: 0, cam: 0,
     beauty: 0, light: 0, stage: 0, unlock: [0],
@@ -175,6 +189,8 @@ export function mount(container, { onComplete, onExit } = {}) {
   els.scheme.addEventListener('change', () => { mic.scheme = els.scheme.value; });
   container.querySelectorAll('input[name="bd-mood"]').forEach((r) => r.addEventListener('change', () => { S.M = MOODS[r.value]; S.mood = r.value; S.worldP = S.M.period[0]; }));
   els.fs.addEventListener('click', toggleFs);
+  const sndBtn = q('[data-sound]');
+  sndBtn.addEventListener('click', () => { const on = sndBtn.getAttribute('aria-pressed') !== 'true'; sndBtn.setAttribute('aria-pressed', String(on)); sndBtn.textContent = on ? 'Sound on' : 'Sound off'; audio?.setEnabled(on); });
   heart.onChange = () => {
     setStatus(els.hrStatus, heart.connected ? `connected: ${heart.status}` : heart.status, heart.connected ? 'ok' : heart.status.startsWith('lost') ? 'err' : '');
     if (heart.connected) els.hrBtn.textContent = 'Connected';
@@ -194,6 +210,7 @@ export function mount(container, { onComplete, onExit } = {}) {
     S.M = MOODS[S.mood];
     S.worldP = S.M.period[0];
     S.breathMode = mode; S.started = true;
+    audio = new CalmAudio({ root: 130.81 }); audio.resume();
     els.intro.remove();
     rootEl.requestFullscreen?.().catch(() => {});
     stageEl.focus();
@@ -281,7 +298,12 @@ export function mount(container, { onComplete, onExit } = {}) {
     S.worldP += (targetP - S.worldP) * Math.min(1, dt * 0.4);
     S.worldPhase = (S.worldPhase + dt / S.worldP) % 1;
     S.worldVal = wave(S.worldPhase);
+    const wasRising = S.rising;
     S.rising = S.worldPhase < 0.4;
+    if (S.started && !S.finished && audio) {
+      if (S.rising && !wasRising) audio.inhale(0.4 * S.worldP);
+      else if (!S.rising && wasRising) audio.exhale(0.6 * S.worldP);
+    }
     const pacerV = S.worldVal;
 
     if (S.started && !S.finished) {
@@ -309,6 +331,10 @@ export function mount(container, { onComplete, onExit } = {}) {
 
     // heart
     const hr = heart.bpm;
+    if (hr && S.started) calm.push(hr, performance.now() / 1000); // heart runs on real time
+    S.calmFx = Math.max(0, S.calmFx - dt / 5);
+    for (const r of S.calmRings) { r.r += dt * 45; r.a -= dt * 0.45; }
+    S.calmRings = S.calmRings.filter((r) => r.a > 0 && r.r < W);
     if (hr) {
       S.hrHist.push([now, hr]); S.lastHr = hr; if (S.startHr == null) S.startHr = hr;
       if (S.baseline == null) { S.baselineBuf.push([now, hr]); if (now - S.baselineBuf[0][0] > 20) S.baseline = S.baselineBuf.reduce((a, b) => a + b[1], 0) / S.baselineBuf.length; }
@@ -501,6 +527,14 @@ export function mount(container, { onComplete, onExit } = {}) {
     if (gl > 0 && sun + (S.mood === 'dive' ? 1 : 0) > 0.3) { ctx.fillStyle = `rgba(255,205,110,${0.14 * gl})`; ctx.fillRect(0, 0, W, H); }
     for (const s of S.sparkles) { ctx.fillStyle = s.life > 0.5 ? '#fff6c8' : '#ffd36a'; ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1); }
 
+    // heart-calm reward: warm wash and golden ripples from the diver
+    if (S.calmFx > 0) { ctx.fillStyle = `rgba(255,214,140,${0.16 * S.calmFx})`; ctx.fillRect(0, 0, W, H); }
+    for (const r of S.calmRings) {
+      if (r.r <= 0) continue;
+      ctx.fillStyle = `rgba(255,226,150,${0.55 * r.a})`;
+      for (const [x, y] of ringPixels(Math.round(S.diver.x + 16), Math.round(S.diver.y + 5), Math.round(r.r))) ctx.fillRect(x, y, 1, 1);
+    }
+
     // lung bar + pacer ring
     if (S.started) {
       ctx.fillStyle = 'rgba(0,20,40,0.5)'; ctx.fillRect(10, 164, 62, 6);
@@ -562,7 +596,7 @@ export function mount(container, { onComplete, onExit } = {}) {
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      mic.stop(); heart.disconnect();
+      mic.stop(); heart.disconnect(); audio?.close();
       container.innerHTML = '';
     },
   };

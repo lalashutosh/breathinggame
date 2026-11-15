@@ -19,6 +19,9 @@ const CSS = `
 .gf .stats { display: flex; gap: 26px; justify-content: center; margin: 6px 0 18px; }
 .gf .stats b { display: block; font-family: "Cormorant Garamond", Georgia, serif; font-weight: 500; font-size: 34px; }
 .gf .stats span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+.gf .sense { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin: 4px 0 14px; font-size: 14px; }
+.gf .sense label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; opacity: .92; }
+.gf .sense input { accent-color: #ffe0b0; width: 16px; height: 16px; }
 .gf .wait { width: 10px; height: 10px; border-radius: 50%; background: #fff3cf; display: inline-block; margin-right: 8px; animation: gf-pulse 4s ease-in-out infinite; }
 @keyframes gf-pulse { 0%, 100% { transform: scale(.6); opacity: .5 } 40% { transform: scale(1.3); opacity: 1 } }
 .gf iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #0b1024; }
@@ -41,21 +44,27 @@ export function mount(container, { onComplete, onExit } = {}) {
       <h3 lang="el">ΑΝΑΣΑ</h3>
       <p class="sub">immersive · a quiet valley, a few stray sheep</p>
       <p>Walk the valley as it slowly breathes. About a minute: tap a mood, hold to walk, find the sheep.</p>
-      ${native ? '<p style="font-size:13.5px;opacity:.7">Opens fullscreen in its own window. When the walk ends, choose “Back to the garden”.</p>' : ''}
+      ${native ? `<p style="font-size:13.5px;opacity:.7">Opens fullscreen in its own window. When the walk ends, choose “Back to the garden”.</p>
+      <div class="sense">
+        <label><input type="checkbox" data-mic> Listen to my breathing (microphone)</label>
+        <label><input type="checkbox" data-heart> Heart strap (Bluetooth)</label>
+      </div>` : '<p style="font-size:13.5px;opacity:.7">Microphone and heart strap: open the demo view (bottom left) once the walk starts.</p>'}
       <div class="row">
         ${native ? '<button class="primary" data-go>Open the valley</button><button data-web>Play in the browser</button>'
                  : '<button class="primary" data-web>Begin</button>'}
         <button data-leave>Back</button>
       </div>`);
-    on('[data-go]', launch);
+    on('[data-go]', () => launch({ mic: !!card.querySelector('[data-mic]')?.checked, heart: !!card.querySelector('[data-heart]')?.checked }));
     on('[data-web]', browser);
     on('[data-leave]', () => onExit && onExit());
   }
 
-  async function launch() {
+  let lastOpts = {};
+  async function launch(opts = lastOpts) {
+    lastOpts = opts;
     let session;
     try {
-      const r = await fetch('/api/greenfold/launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const r = await fetch('/api/greenfold/launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts) });
       if (!r.ok) throw new Error((await r.json()).error || r.statusText);
       session = (await r.json()).session;
     } catch (e) {
@@ -66,6 +75,7 @@ export function mount(container, { onComplete, onExit } = {}) {
     }
     view(`<h3 lang="el">ΑΝΑΣΑ</h3><p class="sub"><span class="wait"></span>the valley is open in its own window</p>
       <p>Walk until the valley settles. This page notices when you are done.</p>
+      ${opts.mic || opts.heart ? `<p style="font-size:13.5px;opacity:.75">${[opts.mic && 'listening to your breathing', opts.heart && 'looking for your heart strap'].filter(Boolean).join(' · ')}</p>` : ''}
       <div class="row"><button data-cancel>Back</button></div>`);
     on('[data-cancel]', () => { clearInterval(poll); intro(true); });
     let quietTicks = 0;
@@ -79,7 +89,7 @@ export function mount(container, { onComplete, onExit } = {}) {
           clearInterval(poll);
           view(`<h3 lang="el">ΑΝΑΣΑ</h3><p class="sub">the valley window closed before the walk ended</p>
             <div class="row"><button class="primary" data-go>Open it again</button><button data-leave>Back</button></div>`);
-          on('[data-go]', launch); on('[data-leave]', () => onExit && onExit());
+          on('[data-go]', () => launch()); on('[data-leave]', () => onExit && onExit());
         }
       } catch { /* server hiccup: keep waiting */ }
     }, 1500);
@@ -88,7 +98,7 @@ export function mount(container, { onComplete, onExit } = {}) {
   function browser() {
     iframe = document.createElement('iframe');
     iframe.src = 'games/greenfold-web/index.html';
-    iframe.allow = 'fullscreen; autoplay';
+    iframe.allow = 'fullscreen; autoplay; microphone; bluetooth';
     const back = document.createElement('button');
     back.className = 'back'; back.textContent = 'Back to the garden';
     back.addEventListener('click', () => onExit && onExit());
@@ -113,6 +123,7 @@ export function mount(container, { onComplete, onExit } = {}) {
         <div><b>${bpm}</b><span>breaths / min</span></div>
         <div><b>${res.flowPct ?? 0}%</b><span>in flow</span></div>
         <div><b>${res.sheep ?? 0} / ${res.sheepTotal ?? 7}</b><span>sheep found</span></div>
+        ${res.heart && res.heart.start ? `<div><b>${res.heart.start} → ${res.heart.end}</b><span>heart bpm</span></div>` : ''}
       </div>
       <div class="row"><button class="primary" data-collect>Collect your sapling</button></div>`);
     on('[data-collect]', () => onComplete && onComplete(res));

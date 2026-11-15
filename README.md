@@ -67,6 +67,33 @@ Fullscreen on start (`F` toggles); the end card shows rhythm per minute, time in
 gathered and one small real-world step. The game module was drafted by a Verda-hosted agent from
 `web/js/games/drift/tasks/game.md`, then tuned.
 
+### Sensing, breathing cues and the heart reward (all three modes)
+
+| | breath | heart | where to switch it on |
+|---|---|---|---|
+| Minimalist | microphone (breath adds to sync; hands still steer) | Bluetooth strap | setup screen: "Listen to my breathing", "Connect heart sensor" |
+| Retro | microphone / keys / pacer | Bluetooth strap | setup screen |
+| Immersive (browser) | microphone / simulated / Space | Bluetooth strap | demo view: "Microphone", "Connect heart sensor" |
+| Immersive (Godot) | microphone via `sensors/bridge.py` | Bluetooth strap via `sensors/bridge.py` | hub card checkboxes before "Open the valley" |
+
+* **Cues:** every mode plays a soft rising sound as the world rhythm turns to the in-breath and a
+  warm falling tone as it turns to the out-breath (`web/js/lib/calm.js`; Godot `audio_engine.gd`).
+* **Heart reward:** a baseline is learned over the first 20 s; each further 2 bpm drop of the 10 s
+  average (at most every 12 s) triggers a reward. Never a penalty. Retro: golden ripples, sparkles,
+  a warm wash, a little more reef life. Minimalist: a warm bloom from the light and a shower of new
+  stars. Immersive: flowers burst open, the lantern blooms, warm light and motes. All play a warm
+  rising chime and show "your heart is settling" for a moment.
+* **Godot bridge:** `serve.py` starts `sensors/bridge.py` (reusing `breathdive.py`'s microphone and
+  Bluetooth code) next to Godot; it posts to `POST /api/sensors`, Godot polls `GET /api/sensors`.
+  One-time setup:
+
+  ```bash
+  uv venv --python /usr/bin/python3 --system-site-packages sensors/.venv
+  uv pip install --python sensors/.venv/bin/python sounddevice bleak
+  ```
+
+  Bluetooth must be switched on; the bridge connects to the first heart-rate strap it finds.
+
 ### Sensors in the browser game
 
 Breath Dive's setup screen offers three breath sources and an optional heart sensor:

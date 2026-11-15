@@ -166,6 +166,7 @@ var _walk_again: Button
 
 var _stage_value: Label
 var _sync_value: Label
+var _heart_value: Label
 var _bpm_value: Label
 var _breath_note: Label
 
@@ -477,6 +478,7 @@ func _build_demo() -> void:
 	_stage_value = _add_demo_row(column, "Stage")
 	_sync_value = _add_demo_row(column, "In sync")
 	_bpm_value = _add_demo_row(column, "Breaths / min")
+	_heart_value = _add_demo_row(column, "Heart")
 
 	var source_row := HBoxContainer.new()
 	_track_spacing(source_row, 8.0)
@@ -1067,7 +1069,11 @@ func _populate_end_screen() -> void:
 	_end_sheep.text = "%d / %d" % [Game.flock, Game.NSHEEP]
 	_end_step.text = str(Game.preset["step"])
 
-	if Breath.source == "manual":
+	if Breath.source == "sensor":
+		_end_fine_print.text = "Breathing measured through the microphone." + (
+			" Your heart settled %d times." % Breath.calm_events if Breath.calm_events > 1
+			else (" Your heart settled." if Breath.calm_events == 1 else ""))
+	elif Breath.source == "manual":
 		_end_fine_print.text = (
 			"Prototype: breathing figures are estimated from your key presses."
 		)
@@ -1075,6 +1081,21 @@ func _populate_end_screen() -> void:
 		_end_fine_print.text = (
 			"Prototype: breathing figures come from a simulated breather, not a sensor."
 		)
+
+
+## Heart-calm moment: a short warm line, then it fades (reward only).
+func show_calm() -> void:
+	if Game.state != "play":
+		return
+	_hint_generation += 1
+	var generation := _hint_generation
+	_hint.text = "Your heart is settling."
+	_hint.modulate.a = 0.0
+	_hint.visible = true
+	_fade_control(_hint, 1.0, 0.8)
+	await get_tree().create_timer(4.5).timeout
+	if generation == _hint_generation:
+		_fade_control(_hint, 0.0, 1.2, true)
 
 
 func _begin_hint_sequence() -> void:
@@ -1153,10 +1174,13 @@ func _refresh_breath_source() -> void:
 		return
 
 	var manual: bool = Breath.source == "manual"
-	_sim_button.set_pressed_no_signal(not manual)
+	var sensor: bool = Breath.source == "sensor"
+	_sim_button.set_pressed_no_signal(not manual and not sensor)
 	_hold_button.set_pressed_no_signal(manual)
 
-	if manual:
+	if sensor:
+		_breath_note.text = "Breathing from the microphone (ΑΝΑΣΑ sensor bridge)."
+	elif manual:
 		_breath_note.text = (
 			"Hold Space as you breathe in, release as you breathe out."
 		)
@@ -1175,6 +1199,12 @@ func _update_demo_values() -> void:
 	_stage_value.text = str(Breath.stage)
 	_sync_value.text = "%d%%" % roundi(Breath.sync * 100.0)
 	_bpm_value.text = str(roundi(60.0 / maxf(Breath.user_period, 0.001)))
+	if is_instance_valid(_heart_value):
+		if Breath.heart_bpm > 0.0:
+			var dl := Breath.heart_delta()
+			_heart_value.text = "%d bpm%s" % [roundi(Breath.heart_bpm), "" if is_nan(dl) else " (%+d)" % roundi(dl)]
+		else:
+			_heart_value.text = "–"
 
 
 func _process(delta: float) -> void:

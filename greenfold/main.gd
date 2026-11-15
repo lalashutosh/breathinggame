@@ -39,6 +39,10 @@ var _report_url := ""   # launched from the MindPlay hub: POST the result here w
 var _session := ""
 var _hub := false
 var _ended_once := false
+var _sensor_req: HTTPRequest
+var _sensor_url := ""
+var _sensor_busy := false
+var _sensor_clock := 0.0
 var _seq_dir := ""
 var _seq_n := 0
 var _seq_busy := false
@@ -70,6 +74,7 @@ func _ready() -> void:
 			ui.sound_toggled.connect(audio.set_enabled)
 	Game.started.connect(_on_started)
 	Game.ended.connect(_on_ended)
+	Breath.heart_calm.connect(_on_heart_calm)
 	Game.to_menu()
 	_reset_player()
 	_spawn_sheep()
@@ -102,6 +107,8 @@ func _ready() -> void:
 			_session = a.substr(10)
 		elif a == "--hub":
 			_hub = true
+		elif a.begins_with("--sensors="):
+			_start_sensor_poll(a.substr(10))
 		elif a.begins_with("--seq="):
 			_seq_dir = a.substr(6)
 		elif a.begins_with("--turn="):
@@ -238,7 +245,7 @@ func _apply_mood(dt: float) -> void:
 	env.volumetric_fog_emission = hor * 0.02 * (1.0 - vis)
 	env.ambient_light_energy = lerpf(0.5, 0.82, vis) * (0.6 if restless else 1.0) * (0.95 + 0.1 * wv)
 	env.tonemap_exposure = (0.85 if restless else 1.0) * (1.0 - 0.25 * Game.e if restless else 1.0)
-	env.glow_intensity = 0.55 + 0.35 * sy
+	env.glow_intensity = 0.55 + 0.35 * sy + 0.5 * Breath.calm_fx
 
 	RenderingServer.global_shader_parameter_set("grass_base", Game.fc("grass_base"))
 	RenderingServer.global_shader_parameter_set("grass_tip", Game.fc("grass_tip"))
@@ -252,16 +259,17 @@ func _apply_mood(dt: float) -> void:
 	# lantern: glow expands on the in-phase, shrinks to a soft core on the out-phase
 	if lantern_light:
 		var dark := 1.0 - vis * 0.7
-		lantern_light.light_energy = (0.4 + 1.1 * sy) * (0.6 + 0.6 * wv) * (0.6 + dark)
+		var cfx := Breath.calm_fx
+		lantern_light.light_energy = (0.4 + 1.1 * sy) * (0.6 + 0.6 * wv) * (0.6 + dark) + 2.2 * cfx
 		lantern_light.omni_range = 9.0 + 10.0 * sy
-		var hs := (0.9 + 1.4 * sy) * (0.75 + 0.45 * wv)
+		var hs := (0.9 + 1.4 * sy) * (0.75 + 0.45 * wv) + 1.2 * cfx
 		lantern_halo.global_transform = Transform3D(Basis().scaled(Vector3.ONE * hs / 2.3), lantern_light.global_position)
 		lantern_halo.transparency = 1.0 - (0.35 + 0.4 * dark)
 
 	# motes drift up on the in-phase, settle down on the out-phase
 	if motes:
 		var life := Game.fv("life")
-		motes.amount_ratio = clampf(0.15 + life, 0.0, 1.0)
+		motes.amount_ratio = clampf(0.15 + life + Breath.calm_fx, 0.0, 1.0)
 		motes_mat.gravity = Vector3(0.15, 0.35 if Breath.rising else -0.22, 0.0)
 		var ff := clampf(stars * 1.6, 0.0, 1.0)
 		motes_mat.color = Color(1.0, 0.88, 0.55).lerp(Color(0.75, 1.0, 0.55), ff) * (0.9 + 0.5 * ff)
@@ -525,6 +533,54 @@ func _key(k: int) -> bool:
 	return keys.get(k, false)
 
 
+# ---------------------------------------------------------------- sensors (ΑΝΑΣΑ bridge)
+
+func _start_sensor_poll(url: String) -> void:
+	_sensor_url = url
+	_sensor_req = HTTPRequest.new()
+	_sensor_req.timeout = 2.0
+	add_child(_sensor_req)
+	_sensor_req.request_completed.connect(_on_sensor_data)
+
+
+func _poll_sensors(dt: float) -> void:
+	if _sensor_url == "" or _sensor_busy:
+		return
+	_sensor_clock += dt
+	if _sensor_clock < 0.12:
+		return
+	_sensor_clock = 0.0
+	_sensor_busy = true
+	if _sensor_req.request(_sensor_url) != OK:
+		_sensor_busy = false
+
+
+func _on_sensor_data(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_sensor_busy = false
+	if code != 200:
+		return
+	var d = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(d) != TYPE_DICTIONARY or float(d.get("age", 99.0)) > 3.0:
+		return
+	if d.get("mic", false) and d.get("micReady", false):
+		Breath.sensor_phase = str(d.get("phase", "rest"))
+		Breath.sensor_level = float(d.get("level", 0.0))
+		if Breath.source != "sensor":
+			Breath.source = "sensor"
+			print("SENSOR_BREATH on")
+	var hr = d.get("hr")
+	Breath.heart_bpm = float(hr) if hr != null else 0.0
+	var rm = d.get("rmssd")
+	Breath.heart_rmssd = float(rm) if rm != null else 0.0
+
+
+func _on_heart_calm(drop: float) -> void:
+	print("HEART_CALM drop=%.1f" % drop)
+	# reward only: warm light, flowers burst open (via sync_amt), lantern blooms, a shower of motes
+	if ui and ui.has_method("show_calm"):
+		ui.show_calm()
+
+
 func _on_ended() -> void:
 	_ended_once = true
 	if _report_url == "":
@@ -535,6 +591,8 @@ func _on_ended() -> void:
 		"flowPct": roundi(100.0 * Game.sync_time / maxf(Game.play_time, 1.0)),
 		"startBpm": roundi(Game.start_bpm), "endBpm": roundi(Game.end_bpm),
 		"seconds": roundi(Game.play_time),
+		"breathSource": Breath.source,
+		"heart": {"start": roundi(Breath.heart_start), "end": roundi(Breath.heart_last), "calmMoments": Breath.calm_events} if Breath.heart_start > 0.0 else null,
 	}
 	var req := HTTPRequest.new()
 	add_child(req)
@@ -551,6 +609,7 @@ func _on_started(_m: String) -> void:
 
 func _process(dt: float) -> void:
 	t += dt
+	_poll_sensors(dt)
 	if _force_p >= 0.0 and Game.state == "play":
 		Game.p = _force_p
 		Game.e = Game.ease_s(_force_p)

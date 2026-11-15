@@ -15,6 +15,7 @@ localStorage). With this server running, every visitor sees the same garden:
 import argparse
 import shutil
 import subprocess
+import sys
 from urllib.parse import urlparse, parse_qs
 import json
 import os
@@ -107,25 +108,64 @@ class GreenfoldLauncher:
         self.project = os.path.join(ROOT, "greenfold")
         self.godot = os.environ.get("GODOT_BIN") or shutil.which("godot") or shutil.which("godot4")
         self.proc = None
+        self.bridge = None
         self.results = {}
+        self.sensors = {}
+        self.sensors_t = 0.0
         self.lock = threading.Lock()
+        venv_py = os.path.join(ROOT, "sensors", ".venv", "bin", "python")
+        self.sensor_python = venv_py if os.path.exists(venv_py) else sys.executable
 
     def available(self):
         return bool(self.godot) and os.path.exists(os.path.join(self.project, "project.godot"))
 
-    def launch(self, mode=None):
+    def launch(self, mode=None, mic=False, heart=False):
         if not self.available():
             return 501, {"error": "Godot or the greenfold project was not found on this machine"}
         with self.lock:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()
+            self._stop_bridge()
             sid = uuid.uuid4().hex[:12]
             args = [self.godot, "--path", self.project, "--fullscreen", "--",
                     f"--report={self.base_url}api/greenfold/result", f"--session={sid}", "--hub"]
             if mode:
                 args.append(f"--mode={mode}")
+            if mic or heart:
+                # the sensor bridge reuses breathdive.py's mic + Bluetooth code and posts to /api/sensors
+                bargs = [self.sensor_python, os.path.join(ROOT, "sensors", "bridge.py"), "--post", f"{self.base_url}api/sensors"]
+                if mic:
+                    bargs.append("--mic")
+                if heart:
+                    bargs.append("--hr")
+                self.sensors, self.sensors_t = {}, 0.0
+                self.bridge = subprocess.Popen(bargs, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                               env={**os.environ, "PYGAME_HIDE_SUPPORT_PROMPT": "1"})
+                args.append(f"--sensors={self.base_url}api/sensors")
             self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return 202, {"session": sid}
+            proc = self.proc
+        threading.Thread(target=self._reap, args=(proc,), daemon=True).start()
+        return 202, {"session": sid, "sensors": bool(mic or heart)}
+
+    def _reap(self, proc):
+        proc.wait()
+        with self.lock:
+            if proc is self.proc:
+                self._stop_bridge()
+
+    def _stop_bridge(self):
+        if self.bridge and self.bridge.poll() is None:
+            self.bridge.terminate()
+        self.bridge = None
+
+    def push_sensors(self, body):
+        with self.lock:
+            self.sensors, self.sensors_t = body, time.time()
+        return 200, {"ok": True}
+
+    def get_sensors(self):
+        with self.lock:
+            return 200, {**self.sensors, "age": round(time.time() - self.sensors_t, 2) if self.sensors_t else 99}
 
     def report(self, body):
         sid = str(body.get("session", ""))
@@ -159,7 +199,10 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         route = self.path.split("?")[0]
         if route == "/api/greenfold/status":
-            return self._json(200, {"available": self.greenfold.available()})
+            return self._json(200, {"available": self.greenfold.available(),
+                                    "sensors": os.path.exists(os.path.join(ROOT, "sensors", "bridge.py"))})
+        if route == "/api/sensors":
+            return self._json(*self.greenfold.get_sensors())
         if route == "/api/greenfold/result":
             sid = parse_qs(urlparse(self.path).query).get("session", [""])[0]
             return self._json(*self.greenfold.result(sid))
@@ -176,7 +219,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
-        if route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result"):
+        if route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result", "/api/sensors"):
             return self._json(404, {"error": "not found"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -184,7 +227,9 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "bad json"})
         if route == "/api/greenfold/launch":
-            return self._json(*self.greenfold.launch(body.get("mode")))
+            return self._json(*self.greenfold.launch(body.get("mode"), bool(body.get("mic")), bool(body.get("heart"))))
+        if route == "/api/sensors":
+            return self._json(*self.greenfold.push_sensors(body))
         if route == "/api/greenfold/result":
             return self._json(*self.greenfold.report(body))
         status, payload = self.garden.plant(body)

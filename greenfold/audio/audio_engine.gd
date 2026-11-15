@@ -77,6 +77,8 @@ func _ready() -> void:
 	Game.sheep_joined.connect(_on_sheep_joined)
 	Game.started.connect(_on_game_started)
 	_bird_timer = _rng.randf_range(3.0, 9.0)
+	Breath.trough.connect(_on_breath_trough)
+	Breath.heart_calm.connect(calm_chime)
 
 
 func _process(dt: float) -> void:
@@ -211,9 +213,30 @@ func sheep_bell(pitch_mul: float) -> void:
 	_play_bell(float(Game.root_hz()) * 4.0 * mul, -27.0)
 
 
+## In-breath cue: two soft notes stepping up, at the start of each rise.
+func _on_breath_trough() -> void:
+	if Game.state != "play":
+		return
+	var root: float = float(Game.root_hz())
+	_play_bell(root * 3.0, -25.0)
+	_schedule_bell(0.45, root * 4.0, -26.0)
+
+
+## Heart-calm reward: a slow warm rising arpeggio.
+func calm_chime(_drop: float = 0.0) -> void:
+	var root: float = float(Game.root_hz())
+	var steps := [1.0, 1.25, 1.5, 2.0, 2.5]
+	for i in steps.size():
+		_schedule_bell(0.24 * i, root * 2.0 * float(steps[i]), -17.0 - i)
+
+
 func _on_breath_peak() -> void:
 	var root: float = float(Game.root_hz())
 	_play_bell(root * 4.0, -24.0)
+	# out-breath cue: a warm low pair stepping down
+	if Game.state == "play":
+		_schedule_bell(0.35, root * 2.0, -23.0)
+		_schedule_bell(0.9, root * 1.5, -24.0)
 
 	if Game.state == "play" and Breath.sync > 0.55:
 		var scale: Array = Game.scale_ratios()
