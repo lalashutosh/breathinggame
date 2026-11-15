@@ -94,6 +94,29 @@ gathered and one small real-world step. The game module was drafted by a Verda-h
 
   Bluetooth must be switched on; the bridge connects to the first heart-rate strap it finds.
 
+### Breath in/out model (microphone)
+
+The microphone is read by a small trained model instead of a hand-tuned loudness filter, once one
+exists at `web/models/breath.json` (until then the old detector is used).
+
+1. **Record:** `python3 serve.py`, open `/tools/breath-recorder.html`. Pick the mic, check breaths show
+   in the live picture, then follow the guided session (~2 or ~3½ min: quiet, three paces, your own
+   pace, a sentence read aloud, quiet). **Hold SPACE while breathing in, let go to breathe out**: the
+   key presses are the labels. Saves `<id>.wav` (16 kHz mono) + `<id>.json` to `dataset/raw/`
+   (git-ignored: it is personal audio). Record 5+ sessions: different paces, nose/mouth, mic
+   positions, rooms.
+2. **Train:** the page's "Train the model" button, or `python3 ml/train_breath.py`. Holds out whole
+   sessions, reports frame accuracy, switch timing error, missed/extra switches, in/out duration and
+   breath period error, and writes `web/models/breath.json`.
+3. **Use:** every mode's microphone option and the Godot sensor bridge pick it up automatically. It
+   reports the phase (in/out/rest), seconds since the last switch, the last in and out durations
+   and the breath period. "Try the model live" on the recorder page shows it.
+
+Model: 32 ms frames, 24 log-mel bands with a running noise floor, 320 ms causal context, a 32-unit
+MLP, then a phase tracker (smoothing + 0.24 s minimum dwell). Python (`ml/breath_model.py`) and JS
+(`web/js/lib/breathmodel.js`) give identical outputs. `ml/make_synthetic.py` makes fake sessions to
+test the pipeline only.
+
 ### Sensors in the browser game
 
 Breath Dive's setup screen offers three breath sources and an optional heart sensor:

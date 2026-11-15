@@ -26,6 +26,35 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import breathdive as bd  # noqa: E402  (Bio, start_mic, start_ble)
 
 
+def start_model_mic(bio, path, device):
+    """Microphone through the trained in/out model (ml/breath_model.py), 16 kHz."""
+    import threading
+    sys.path.insert(0, os.path.join(ROOT, "ml"))
+    from breath_model import BreathModel, SR, HOP
+    model = BreathModel.load(path)
+    bio.breath_status = "mic (trained model)"
+
+    def callback(indata, frames, t, status):
+        st = model.push(indata[:, 0])
+        if st is None:
+            return
+        with bio.lock:
+            bio.phase = st["phase"]
+            bio.level = min(1.0, st["pIn"] + st["pOut"])
+            bio.breath_status = "mic"
+            bio.detail = st
+
+    def run():
+        try:
+            import sounddevice as sd
+            with sd.InputStream(samplerate=SR, blocksize=HOP * 2, channels=1, device=device, callback=callback):
+                while bio.running:
+                    time.sleep(0.1)
+        except Exception as e:
+            bio.breath_status = f"mic error: {e}"
+    threading.Thread(target=run, daemon=True).start()
+
+
 def main():
     ap = argparse.ArgumentParser(description="ΑΝΑΣΑ sensor bridge")
     ap.add_argument("--post", required=True, help="serve.py /api/sensors URL")
@@ -42,7 +71,10 @@ def main():
     a = ap.parse_args()
 
     bio = bd.Bio()
-    if a.mic:
+    model_path = os.path.join(ROOT, "web", "models", "breath.json")
+    if a.mic and os.path.exists(model_path):
+        start_model_mic(bio, model_path, a.device)
+    elif a.mic:
         bd.start_mic(bio, SimpleNamespace(gate=a.gate, span=a.span, flat=a.flat, raw=a.raw,
                                           min_breath=a.min_breath, mic_scheme=a.mic_scheme, device=a.device))
     if a.hr:
@@ -59,6 +91,9 @@ def main():
                 "hrOn": a.hr, "hr": bio.hr if fresh else None, "hrStatus": bio.hr_status,
             }
         state["rmssd"] = bio.rmssd_ms()
+        detail = getattr(bio, "detail", None)
+        if detail:
+            state.update({k: detail[k] for k in ("since", "lastIn", "lastOut", "period")})
         try:
             req = urllib.request.Request(a.post, data=json.dumps(state).encode(),
                                          headers={"Content-Type": "application/json"})

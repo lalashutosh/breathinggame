@@ -100,6 +100,18 @@ export class MicBreath {
   set scheme(s) { this.tracker.scheme = s; }
   async start() {
     if (!support.mic) throw new Error(support.secure ? 'This browser has no microphone access' : 'Microphone needs https or localhost');
+    // Prefer the trained in/out model (web/models/breath.json, built from recorded sessions).
+    try {
+      const { BreathModel, openMic16k } = await import('./breathmodel.js');
+      const model = await BreathModel.load();
+      this.model = model; this.modelState = model.state;
+      this.mic16 = await openMic16k((block) => {
+        const st = model.push(block);
+        this.modelState = st; this.phase = st.phase; this.level = Math.min(1, st.pIn + st.pOut);
+      });
+      this.ready = true; this.status = 'mic (trained model)';
+      return;
+    } catch (e) { this.model = null; /* no model yet: fall back to the sound-level detector */ }
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     await this.ctx.resume();
@@ -116,7 +128,7 @@ export class MicBreath {
   }
   /** Process the audio in 32 ms blocks. Call from the game loop; safe to call often. */
   poll(now = performance.now()) {
-    if (!this.analyser) return;
+    if (this.model || !this.analyser) return;
     let steps = 0;
     while (now - this.lastStep >= 32 && steps < 8) {
       this.lastStep += 32; steps++;
@@ -129,8 +141,11 @@ export class MicBreath {
     }
     if (now - this.lastStep > 1000) this.lastStep = now;      // tab was asleep: do not replay a backlog
   }
-  flip() { this.tracker.flip(); }
+  flip() { if (!this.model) this.tracker.flip(); }
+  /** With the trained model: { phase, since, lastIn, lastOut, period, pIn, pOut, pRest }; else null. */
+  get detail() { return this.model ? this.modelState : null; }
   stop() {
+    this.mic16?.stop(); this.mic16 = null; this.model = null;
     clearInterval(this.timer);
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.close().catch(() => {});

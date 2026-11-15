@@ -4,3 +4,4 @@ __pycache__/
 .godot/
 tools/verda_spend.log
 sensors/.venv/
+dataset/

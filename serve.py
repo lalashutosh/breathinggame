@@ -183,6 +183,36 @@ class GreenfoldLauncher:
         return 200, {"done": False, "running": running}
 
 
+DATASET = os.path.join(ROOT, "dataset", "raw")
+SESSION_ID = __import__("re").compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def dataset_list():
+    out = []
+    if os.path.isdir(DATASET):
+        for name in sorted(os.listdir(DATASET)):
+            if not name.endswith(".json"):
+                continue
+            sid = name[:-5]
+            try:
+                meta = json.load(open(os.path.join(DATASET, name)))
+            except (OSError, json.JSONDecodeError):
+                continue
+            segs = meta.get("segments", [])
+            out.append({"id": sid, "seconds": meta.get("seconds"), "created": meta.get("created"),
+                        "breaths": sum(1 for g in segs if g.get("label") == "in"),
+                        "hasAudio": os.path.exists(os.path.join(DATASET, sid + ".wav"))})
+    return out
+
+
+def train_model():
+    py = os.path.join(ROOT, "sensors", ".venv", "bin", "python")
+    py = py if os.path.exists(py) else sys.executable
+    r = subprocess.run([py, os.path.join(ROOT, "ml", "train_breath.py")], cwd=ROOT, capture_output=True, text=True, timeout=900)
+    log = "\n".join(l for l in (r.stdout + r.stderr).splitlines() if "RuntimeWarning" not in l and "avx2" not in l)
+    return (200 if r.returncode == 0 else 500), {"ok": r.returncode == 0, "log": log}
+
+
 class Handler(SimpleHTTPRequestHandler):
     garden = None  # set in main
     greenfold = None  # set in main
@@ -203,6 +233,8 @@ class Handler(SimpleHTTPRequestHandler):
                                     "sensors": os.path.exists(os.path.join(ROOT, "sensors", "bridge.py"))})
         if route == "/api/sensors":
             return self._json(*self.greenfold.get_sensors())
+        if route == "/api/dataset":
+            return self._json(200, {"sessions": dataset_list()})
         if route == "/api/greenfold/result":
             sid = parse_qs(urlparse(self.path).query).get("session", [""])[0]
             return self._json(*self.greenfold.result(sid))
@@ -219,6 +251,10 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
+        if route.startswith("/api/dataset/"):
+            return self._dataset_post(route[len("/api/dataset/"):])
+        if route == "/api/model/train":
+            return self._json(*train_model())
         if route not in ("/api/garden/contributions", "/api/greenfold/launch", "/api/greenfold/result", "/api/sensors"):
             return self._json(404, {"error": "not found"})
         try:
@@ -234,6 +270,26 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(*self.greenfold.report(body))
         status, payload = self.garden.plant(body)
         self._json(status, payload)
+
+    def _dataset_post(self, name):
+        sid, _, ext = name.rpartition(".")
+        if ext not in ("wav", "json") or not SESSION_ID.match(sid):
+            return self._json(400, {"error": "bad session name"})
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > 80 * 1024 * 1024:
+            return self._json(413, {"error": "empty or too large"})
+        data = self.rfile.read(n)
+        if ext == "json":
+            try:
+                json.loads(data)
+            except json.JSONDecodeError:
+                return self._json(400, {"error": "bad json"})
+        elif data[:4] != b"RIFF":
+            return self._json(400, {"error": "not a wav file"})
+        os.makedirs(DATASET, exist_ok=True)
+        with open(os.path.join(DATASET, f"{sid}.{ext}"), "wb") as f:
+            f.write(data)
+        return self._json(201, {"saved": f"{sid}.{ext}", "bytes": n})
 
     def end_headers(self):
         if self.path.endswith((".js", ".css", ".html")) or self.path == "/":

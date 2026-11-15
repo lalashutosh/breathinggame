@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ΑΝΑΣΑ · breath recorder</title>
+<style>
+  :root { --bg: #0d1428; --card: #16203d; --ink: #eef2fb; --dim: #9aa8c8; --in: #8fd3ff; --out: #ffc98f; --rest: #6c7896; --ok: #9ff0b2; --err: #ffb0a8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 22px 16px 60px; }
+  h1 { font: 500 30px Georgia, serif; letter-spacing: .12em; margin: 0; }
+  h1 small { font: 400 14px system-ui; letter-spacing: 0; color: var(--dim); margin-left: 10px; }
+  .card { background: var(--card); border: 1px solid #26335a; border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  label { display: inline-flex; gap: 8px; align-items: center; margin: 4px 16px 4px 0; }
+  select, input[type=text] { background: #0f1830; color: var(--ink); border: 1px solid #33426e; border-radius: 8px; padding: 6px 8px; font: inherit; }
+  button { font: 600 15px system-ui; border-radius: 999px; padding: 10px 22px; border: 1px solid #3b4b7c; background: #1d2a50; color: var(--ink); cursor: pointer; }
+  button.primary { background: #ffe9c4; color: #1a1f3a; border: 0; }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .muted { color: var(--dim); font-size: 13.5px; }
+  .meter { height: 10px; background: #0f1830; border-radius: 6px; overflow: hidden; flex: 1; min-width: 160px; }
+  .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #4fa0c9, #8fd3ff); }
+  canvas { width: 100%; display: block; border-radius: 10px; background: #0a1022; }
+  #stage { text-align: center; }
+  #guide { width: 220px; height: 220px; margin: 8px auto; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle, rgba(143,211,255,.25), rgba(143,211,255,.04) 70%); transition: transform .12s linear; }
+  #cue { font: 500 30px Georgia, serif; }
+  #instr { min-height: 1.5em; font-size: 17px; }
+  #hold { width: 100%; padding: 22px; font-size: 18px; border-radius: 14px; margin-top: 12px; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #hold.down { background: #2a6d9a; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+  .pill.in { background: var(--in); color: #0d1428; } .pill.out { background: var(--out); color: #0d1428; } .pill.rest { background: var(--rest); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; } td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #26335a; }
+  pre { background: #0a1022; padding: 12px; border-radius: 10px; overflow: auto; font-size: 12.5px; max-height: 360px; }
+  .bars { display: grid; grid-template-columns: 50px 1fr 50px; gap: 6px 10px; align-items: center; font-size: 13px; }
+  .bar { height: 10px; background: #0f1830; border-radius: 6px; overflow: hidden; } .bar i { display: block; height: 100%; }
+  .big { font: 500 44px Georgia, serif; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 lang="el">ΑΝΑΣΑ <small>breath recorder · builds the dataset for the in/out model</small></h1>
+
+  <section class="card" id="setup">
+    <h2>1 · Microphone</h2>
+    <div class="row">
+      <select id="device"><option value="">default microphone</option></select>
+      <button id="micBtn">Turn on microphone</button>
+      <div class="meter"><i id="lvl"></i></div>
+      <span class="muted" id="db">– dB</span>
+    </div>
+    <canvas id="spec" width="820" height="110" style="margin-top:10px"></canvas>
+    <p class="muted">Breathe in and out near the mic and watch the picture: breaths should show up clearly above the room noise. Closer is better (2–10 cm from nose/mouth, or a headset mic).</p>
+    <h2 style="margin-top:14px">2 · How you breathe in this session</h2>
+    <label>In through <select id="inVia"><option>nose</option><option>mouth</option></select></label>
+    <label>Out through <select id="outVia"><option>mouth</option><option>nose</option></select></label>
+    <label>Mic <select id="micPos"><option value="close">close (2–10 cm)</option><option value="headset">headset</option><option value="laptop">laptop built-in (~40 cm)</option></select></label>
+    <label>Room <select id="room"><option>quiet</option><option>some noise</option><option>noisy</option></select></label>
+    <label>Session <select id="len"><option value="short">short (~2 min)</option><option value="full" selected>full (~3½ min)</option></select></label>
+    <label>Name/tag <input type="text" id="tag" placeholder="e.g. ashutosh" size="12"></label>
+    <h2 style="margin-top:14px">3 · Record</h2>
+    <p>Follow the circle. <b>Hold SPACE (or the big button) the whole time you breathe in, and let go when you breathe out.</b> Your key is what labels the data, so follow your own breath, not the circle, if they differ. Slow, comfortable breaths. No holding your breath. Stop any time.</p>
+    <div class="row"><button class="primary" id="startBtn" disabled>Start recording</button><span class="muted" id="count"></span></div>
+  </section>
+
+  <section class="card" id="stage" hidden>
+    <div class="muted" id="step">–</div>
+    <div id="guide"><div id="cue">·</div></div>
+    <div id="instr"></div>
+    <div class="row" style="justify-content:center;margin-top:6px"><span class="muted">your label:</span> <span class="pill rest" id="lab">rest</span> <div class="meter" style="max-width:260px"><i id="lvl2"></i></div> <span class="muted" id="clock">0:00</span></div>
+    <button id="hold">Hold while breathing in (or SPACE)</button>
+    <div class="row" style="justify-content:center;margin-top:12px"><button id="stopBtn">Stop and discard</button></div>
+  </section>
+
+  <section class="card" id="done" hidden>
+    <h2>Session recorded</h2>
+    <div id="summary"></div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="saveBtn">Save to dataset</button><button id="againBtn">Record another</button><span class="muted" id="saveMsg"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Dataset</h2>
+    <table id="list"><tr><td class="muted">loading…</td></tr></table>
+    <div class="row" style="margin-top:12px"><button id="trainBtn">Train the model</button><span class="muted">Aim for 5+ sessions with different paces, positions and rooms. Training holds out whole sessions to test.</span></div>
+    <pre id="trainLog" hidden></pre>
+  </section>
+
+  <section class="card">
+    <h2>Try the model live</h2>
+    <div class="row"><button id="liveBtn">Start live test</button><span class="muted" id="liveMsg">Uses web/models/breath.json and the microphone above.</span></div>
+    <div id="live" hidden style="margin-top:12px">
+      <div class="row" style="gap:28px"><div><div class="muted">phase</div><div class="big" id="lvPhase">–</div></div>
+        <div><div class="muted">for</div><div class="big" id="lvSince">–</div></div>
+        <div><div class="muted">last in / out</div><div class="big" id="lvDur" style="font-size:30px">– / –</div></div>
+        <div><div class="muted">breath period</div><div class="big" id="lvPer" style="font-size:30px">–</div></div></div>
+      <div class="bars" style="margin-top:12px">
+        <span>in</span><div class="bar"><i id="bIn" style="background:var(--in)"></i></div><span id="tIn"></span>
+        <span>out</span><div class="bar"><i id="bOut" style="background:var(--out)"></i></div><span id="tOut"></span>
+        <span>rest</span><div class="bar"><i id="bRest" style="background:var(--rest)"></i></div><span id="tRest"></span>
+      </div>
+      <canvas id="tl" width="820" height="60" style="margin-top:10px"></canvas>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { openMic16k, BreathModel } from '../js/lib/breathmodel.js';
+
+const $ = (id) => document.getElementById(id);
+const SR = 16000;
+let mic = null, onBlock = null;
+let analyse = { lvl: 0, db: -90 };
+
+// ---------- mic + live picture
+const specCtx = $('spec').getContext('2d');
+let specX = 0;
+function drawColumn(block) {
+  // crude 32-band spectrum column for placement feedback
+  const n = 512; if (block.length < n) return;
+  const re = new Float64Array(n), im = new Float64Array(n);
+  for (let i = 0; i < n; i++) re[i] = block[i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / n));
+  // naive DFT on 32 log-spaced bins is enough here
+  const H = $('spec').height, Wd = $('spec').width;
+  for (let b = 0; b < 32; b++) {
+    const f = 100 * Math.pow(7000 / 100, b / 31), k = Math.round(f * n / SR);
+    let sr = 0, si = 0; for (let i = 0; i < n; i++) { const a = -2 * Math.PI * k * i / n; sr += re[i] * Math.cos(a); si += re[i] * Math.sin(a); }
+    const db = 10 * Math.log10(sr * sr + si * si + 1e-12);
+    const v = Math.max(0, Math.min(1, (db + 60) / 60));
+    specCtx.fillStyle = `hsl(${210 - v * 170}, 70%, ${8 + v * 55}%)`;
+    specCtx.fillRect(specX, H - (b + 1) * H / 32, 2, H / 32 + 1);
+  }
+  specX = (specX + 2) % Wd; specCtx.fillStyle = '#fff'; specCtx.fillRect(specX, 0, 1, H);
+}
+let blockCount = 0;
+function handleAudio(block) {
+  let s = 0; for (const v of block) s += v * v;
+  const rms = Math.sqrt(s / block.length), db = 20 * Math.log10(rms + 1e-9);
+  analyse = { db, lvl: Math.max(0, Math.min(1, (db + 70) / 55)) };
+  if (++blockCount % 3 === 0) drawColumn(block);
+  onBlock?.(block);
+}
+setInterval(() => { $('lvl').style.width = $('lvl2').style.width = `${Math.round(analyse.lvl * 100)}%`; $('db').textContent = `${analyse.db.toFixed(0)} dB`; }, 100);
+
+async function listDevices() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    const sel = $('device'), cur = sel.value;
+    sel.innerHTML = '<option value="">default microphone</option>' + devs.map((d) => `<option value="${d.deviceId}">${d.label || 'microphone'}</option>`).join('');
+    sel.value = cur;
+  } catch {}
+}
+async function startMic() {
+  mic?.stop();
+  try {
+    mic = await openMic16k(handleAudio, { deviceId: $('device').value || undefined });
+    $('micBtn').textContent = 'Microphone on'; $('startBtn').disabled = false; $('liveBtn').disabled = false;
+    if (mic.sampleRate !== 16000) $('db').textContent += ` (resampling from ${mic.sampleRate} Hz)`;
+    listDevices();
+  } catch (e) { $('micBtn').textContent = 'Microphone failed: ' + (e.message || e); }
+}
+$('micBtn').onclick = startMic;
+$('device').onchange = () => { if (mic) startMic(); };
+
+// ---------- protocol
+const PACES = { short: [[4, 6, 6], [3, 4, 4]], full: [[3, 4, 5], [4, 6, 5], [5, 7, 4]] };
+function buildPlan(len) {
+  const plan = [{ kind: 'quiet', secs: 6, text: 'Stay quiet and still for a moment (the mic learns the room).' }];
+  for (const [i, o, n] of PACES[len]) plan.push({ kind: 'guided', inS: i, outS: o, cycles: n, text: `Follow the circle: in ${i} s, out ${o} s. Hold SPACE while breathing in.` });
+  plan.push({ kind: 'free', cycles: len === 'full' ? 6 : 4, maxS: 60, text: 'Now your own pace. Keep holding SPACE on each in-breath.' });
+  plan.push({ kind: 'talk', secs: 10, text: 'Read this aloud, normally: “The valley is quiet this evening, and a few sheep wander by the water.”' });
+  plan.push({ kind: 'quiet', secs: 4, text: 'Quiet again. Almost done.' });
+  return plan;
+}
+
+let rec = null;
+function now() { return rec ? (rec.samples / SR) : 0; }
+function setLabel(held) {
+  if (!rec || !rec.breathing) return;
+  if (held === rec.held) return;
+  rec.held = held; rec.presses.push({ t: now(), down: held });
+  $('hold').classList.toggle('down', held);
+  $('lab').textContent = held ? 'in' : 'out'; $('lab').className = 'pill ' + (held ? 'in' : 'out');
+  if (held) rec.inCount++;
+}
+window.addEventListener('keydown', (e) => { if (e.code === 'Space' && rec) { e.preventDefault(); if (!e.repeat) setLabel(true); } });
+window.addEventListener('keyup', (e) => { if (e.code === 'Space' && rec) { e.preventDefault(); setLabel(false); } });
+$('hold').addEventListener('pointerdown', (e) => { e.preventDefault(); $('hold').setPointerCapture(e.pointerId); setLabel(true); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) => $('hold').addEventListener(ev, () => setLabel(false)));
+
+function startRecording() {
+  if (!mic) return;
+  const plan = buildPlan($('len').value);
+  rec = { plan, step: -1, stepT0: 0, chunks: [], samples: 0, presses: [], blocks: [], guide: [], held: false, breathing: false, inCount: 0, stepIn0: 0 };
+  onBlock = (b) => { rec.chunks.push(b); rec.samples += b.length; };
+  $('setup').hidden = true; $('done').hidden = true; $('stage').hidden = false;
+  nextStep();
+  rec.raf = requestAnimationFrame(tick);
+}
+function nextStep() {
+  const t = now();
+  if (rec.step >= 0) { const b = rec.plan[rec.step]; rec.blocks.push({ kind: b.kind, t0: rec.stepT0, t1: t }); if (rec.breathing && rec.held) setLabel(false); }
+  rec.step++;
+  if (rec.step >= rec.plan.length) return finish();
+  const b = rec.plan[rec.step];
+  rec.stepT0 = t; rec.breathing = b.kind === 'guided' || b.kind === 'free'; rec.stepIn0 = rec.inCount;
+  $('instr').textContent = b.text;
+  $('step').textContent = `step ${rec.step + 1} of ${rec.plan.length}`;
+  $('hold').disabled = !rec.breathing;
+  $('lab').textContent = rec.breathing ? 'out' : b.kind === 'talk' ? 'talk' : 'quiet'; $('lab').className = 'pill ' + (rec.breathing ? 'out' : 'rest');
+}
+function tick() {
+  if (!rec) return;
+  const b = rec.plan[rec.step], t = now() - rec.stepT0;
+  $('clock').textContent = `${Math.floor(now() / 60)}:${String(Math.floor(now() % 60)).padStart(2, '0')}`;
+  let scale = 1, cue = '·';
+  if (b.kind === 'guided') {
+    const P = b.inS + b.outS, c = t % P, cyc = Math.floor(t / P);
+    if (c < b.inS) { scale = 0.6 + 0.6 * (c / b.inS); cue = 'in'; } else { scale = 1.2 - 0.6 * ((c - b.inS) / b.outS); cue = 'out'; }
+    const g = rec.guide[rec.guide.length - 1];
+    if (!g || g.label !== cue) rec.guide.push({ t0: now(), label: cue });
+    if (cyc >= b.cycles) nextStep();
+  } else if (b.kind === 'free') {
+    cue = rec.held ? 'in' : 'out'; scale = rec.held ? 1.15 : 0.75;
+    if ((rec.inCount - rec.stepIn0 >= b.cycles && !rec.held && t > 3) || t > b.maxS) nextStep();
+  } else { cue = b.kind === 'talk' ? 'read' : 'quiet'; if (t >= b.secs) nextStep(); }
+  if (!rec) return;
+  $('guide').style.transform = `scale(${scale.toFixed(3)})`; $('cue').textContent = cue;
+  rec.raf = requestAnimationFrame(tick);
+}
+function segmentsFrom(r) {
+  const segs = [];
+  for (const blk of r.blocks) {
+    if (blk.kind === 'quiet' || blk.kind === 'talk') { segs.push({ t0: blk.t0, t1: blk.t1, label: blk.kind }); continue; }
+    const ev = r.presses.filter((p) => p.t >= blk.t0 && p.t <= blk.t1);
+    let cur = { t: blk.t0, label: 'pause' };          // before the first in-breath of a block
+    for (const p of ev) {
+      if (p.t > cur.t) segs.push({ t0: cur.t, t1: p.t, label: cur.label });
+      cur = { t: p.t, label: p.down ? 'in' : 'out' };
+    }
+    if (blk.t1 > cur.t) segs.push({ t0: cur.t, t1: blk.t1, label: cur.label === 'in' ? 'in' : cur.label });
+  }
+  return segs.map((s) => ({ ...s, t0: +s.t0.toFixed(3), t1: +s.t1.toFixed(3) })).filter((s) => s.t1 - s.t0 > 0.05);
+}
+let finished = null;
+function finish() {
+  cancelAnimationFrame(rec.raf);
+  onBlock = null;
+  const pcm = new Float32Array(rec.samples); let o = 0; for (const c of rec.chunks) { pcm.set(c, o); o += c.length; }
+  const segs = segmentsFrom(rec);
+  const dur = (lab) => segs.filter((s) => s.label === lab).map((s) => s.t1 - s.t0);
+  const med = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : 0);
+  const id = `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}-${($('tag').value || 'me').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'me'}`;
+  finished = { id, pcm, meta: {
+    session: id, created: new Date().toISOString(), sampleRate: SR, seconds: +(rec.samples / SR).toFixed(2),
+    device: $('device').selectedOptions[0]?.textContent || 'default', inVia: $('inVia').value, outVia: $('outVia').value,
+    micPos: $('micPos').value, room: $('room').value, length: $('len').value, browser: navigator.userAgent,
+    segments: segs, guide: rec.guide.map((g) => ({ t0: +g.t0.toFixed(3), label: g.label })), presses: rec.presses, blocks: rec.blocks,
+  } };
+  rec = null;
+  $('stage').hidden = true; $('done').hidden = false; $('setup').hidden = false;
+  const ins = dur('in'), outs = dur('out');
+  $('summary').innerHTML = `<p>${finished.meta.seconds.toFixed(0)} s recorded · <b>${ins.length}</b> in-breaths labelled · median in ${med(ins).toFixed(1)} s · median out ${med(outs).toFixed(1)} s</p>
+    ${ins.length < 6 ? '<p style="color:var(--err)">Few in-breaths were labelled: did you hold SPACE while breathing in?</p>' : ''}`;
+  $('saveMsg').textContent = '';
+}
+$('startBtn').onclick = startRecording;
+$('stopBtn').onclick = () => { if (!rec) return; cancelAnimationFrame(rec.raf); rec = null; onBlock = null; $('stage').hidden = true; $('setup').hidden = false; };
+$('againBtn').onclick = () => { $('done').hidden = true; };
+
+function wavBytes(pcm) {
+  const b = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(b);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767))), true);
+  return b;
+}
+$('saveBtn').onclick = async () => {
+  if (!finished) return;
+  $('saveBtn').disabled = true; $('saveMsg').textContent = 'saving…';
+  try {
+    for (const [ext, body, type] of [['wav', wavBytes(finished.pcm), 'audio/wav'], ['json', JSON.stringify(finished.meta), 'application/json']]) {
+      const r = await fetch(`/api/dataset/${finished.id}.${ext}`, { method: 'POST', headers: { 'Content-Type': type }, body });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    }
+    $('saveMsg').textContent = `saved as ${finished.id}`; finished = null; refreshList();
+  } catch (e) {
+    $('saveMsg').textContent = 'could not save to the server (' + (e.message || e) + '): downloading instead';
+    for (const [ext, body] of [['wav', new Blob([wavBytes(finished.pcm)])], ['json', new Blob([JSON.stringify(finished.meta)])]]) {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(body); a.download = `${finished.id}.${ext}`; a.click();
+    }
+  } finally { $('saveBtn').disabled = false; }
+};
+
+async function refreshList() {
+  try {
+    const { sessions } = await (await fetch('/api/dataset', { cache: 'no-store' })).json();
+    $('count').textContent = `${sessions.length} session(s) in the dataset`;
+    $('list').innerHTML = '<tr><th>session</th><th>length</th><th>in-breaths</th></tr>' +
+      (sessions.map((s) => `<tr><td>${s.id}</td><td>${s.seconds ? Math.round(s.seconds) + ' s' : '–'}</td><td>${s.breaths}</td></tr>`).join('') || '<tr><td class="muted" colspan="3">nothing yet</td></tr>');
+  } catch { $('list').innerHTML = '<tr><td class="muted">dataset list needs serve.py</td></tr>'; }
+}
+refreshList();
+
+$('trainBtn').onclick = async () => {
+  $('trainBtn').disabled = true; $('trainLog').hidden = false; $('trainLog').textContent = 'training… (a minute or so)';
+  try { const r = await (await fetch('/api/model/train', { method: 'POST', body: '{}' })).json(); $('trainLog').textContent = r.log; }
+  catch (e) { $('trainLog').textContent = 'training failed: ' + (e.message || e); }
+  finally { $('trainBtn').disabled = false; }
+};
+
+// ---------- live test
+let model = null, liveOn = false;
+const tl = $('tl').getContext('2d'); let tlx = 0;
+$('liveBtn').onclick = async () => {
+  if (liveOn) { liveOn = false; onBlock = null; $('liveBtn').textContent = 'Start live test'; return; }
+  if (!mic) await startMic();
+  try { model = await BreathModel.load(); } catch (e) { $('liveMsg').textContent = 'No trained model yet: record sessions and press “Train the model”.'; return; }
+  model.reset(); liveOn = true; $('live').hidden = false; $('liveBtn').textContent = 'Stop live test';
+  const m = model.spec.metrics || {}; $('liveMsg').textContent = `model from ${model.spec.created} · held-out accuracy ${m.held_out_frame_accuracy != null ? Math.round(m.held_out_frame_accuracy * 100) + '%' : '–'}`;
+  onBlock = (b) => {
+    const s = model.push(b);
+    $('lvPhase').textContent = s.phase; $('lvSince').textContent = s.since.toFixed(1) + ' s';
+    $('lvDur').textContent = `${s.lastIn ? s.lastIn.toFixed(1) : '–'} / ${s.lastOut ? s.lastOut.toFixed(1) : '–'} s`;
+    $('lvPer').textContent = s.period ? s.period.toFixed(1) + ' s' : '–';
+    for (const [k, bar, txt] of [['pIn', 'bIn', 'tIn'], ['pOut', 'bOut', 'tOut'], ['pRest', 'bRest', 'tRest']]) { $(bar).style.width = `${Math.round(s[k] * 100)}%`; $(txt).textContent = Math.round(s[k] * 100) + '%'; }
+    tl.fillStyle = s.phase === 'in' ? '#8fd3ff' : s.phase === 'out' ? '#ffc98f' : '#2a3354'; tl.fillRect(tlx, 0, 2, 60); tlx = (tlx + 2) % 820; tl.fillStyle = '#fff'; tl.fillRect(tlx, 0, 1, 60);
+  };
+};
+$('liveBtn').disabled = false;
+</script>
+</body>
+</html>
